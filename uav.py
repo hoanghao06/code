@@ -1,17 +1,16 @@
-import gym
+import gymnasium as gym
 import numpy as np
 from matplotlib import pyplot as plt
 
 from arg_data import CarsPath
-from channel import get_fso_gain, get_thz_gain, power_distribute
+from channel import get_fso_access, data_rate, get_solar_power, get_fso, get_fso_backhaul, get_fso_harvested_power, get_snr
 from store_file import Buffer
 
 # car_speed = 15  # m/s
 car_force = 5  # gia tốc tối đa của xe (m/s^2)
-uav_height = 100  # m
+# uav_height = 100  # m
 # target_rate = 4.0e2  # Mbs
 slot_time = 1  # s
-thz_power = 15  # dBm
 fso_power = 15  # dBm
 
 
@@ -24,112 +23,95 @@ class MakeEnv(gym.Env):
         self._max_episode_steps = self.cars_path.max_time
         # store
         self.buffer = Buffer(max_time=self._max_episode_steps + 1, car_num=self.car_num)
-        # self.p_thz_max = thz_power + 10 * np.log10(self.car_num)  # tổng công suất THz (dBm) tăng theo logarit
         # self.p_fso_max = fso_power * np.ones(shape=(self.car_num,))  # average power in dBm
-        self.p_thz_max = thz_power
         self.p_fso_max = fso_power
+        self.target_rate = target_rate # R_E
+        self.alpha = 10.0  # Hệ số phạt (lớn)
+        self.beta = 1       # Trọng số rate (ưu tiên cao)
+        self.gamma = 0.01  # Trọng số energy (nhỏ hơn)
+        self.P_th = 1
+        self.hap_pos = np.array([0, 0, 20000]) 
+        self.irs_pos = np.array([0, 0, 80])
         # edge constraint
         self.target_rate = target_rate
         self.delta_rate = target_rate * 1.0  # Mbps
         # [-500, -500, 0] -> [500, 500, 100]
-        self.uav_acc_edge = np.array([0, 5], dtype=np.float32)  # m/s^2
+        self.uav_acc_edge = np.array([0, 5], dtype=np.float32)  # Giới hạn độ lớn gia tốc của UAV m/s^2
 
-        self.uav_velocity_edge = np.array([0, 10], dtype=np.float32)  # m/s
+        self.uav_velocity_edge = np.array([0, 10], dtype=np.float32)  # Giới hạn tốc độ bay tối đa m/s
         
-        self.env_edge = np.array([[-500, 500], [-500, 500], [0, 100]], dtype=np.float32)  # m
+        self.env_edge = np.array([[-500, 500], [-500, 500], [0, 5000]], dtype=np.float32)  # Không gian hoạt động của hệ thống m
         # [0, 1], advice: 2 ** n
-        observation_spaces = gym.spaces.Box(low=np.zeros(shape=(self.car_num + 2,), dtype=np.float32),
-                                            high=np.ones(shape=(self.car_num + 2,), dtype=np.float32))
+        observation_spaces = gym.spaces.Box(low=np.zeros(shape=(self.car_num + 4,), dtype=np.float32),
+                                            high=np.ones(shape=(self.car_num + 4,), dtype=np.float32))
         self.observation_space = observation_spaces
         # [-1, 1]
-        action_spaces = gym.spaces.Box(low=-1 * np.ones(shape=(2,), dtype=np.float32),
-                                       high=np.ones(shape=(2,), dtype=np.float32))
+        action_spaces = gym.spaces.Box(low=-1 * np.ones(shape=(3,), dtype=np.float32),
+                                       high=np.ones(shape=(3,), dtype=np.float32))
         self.action_space = action_spaces
 
-    def reset(self):
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
         self.time = 0  # slot = 1s, max_time = 1000s
         self.buffer.clear()  # reset Buffer
         temp_car_init_pos = self.cars_path.load(speed=self.car_speed, force=car_force, num=self.car_num)
         self.obj_point = self.cars_path.obj_pos
         # [-200, 200], uav-pos in m
         # self.uav_pos = np.mean(temp_car_init_pos, axis=0) + np.array([0, 0., uav_height])
-        self.uav_pos = np.array([0, 0., uav_height])
-        # self.uav_pos = np.array([-450., 0, uav_height])
-        # accelerate [-pi, pi], [0, 5]
-        self.uav_acc_xy = np.zeros(shape=(2,), dtype=np.float32) # khởi tạo gia tốc
-        self.pre_acc_xy = self.uav_acc_xy
+        self.uav_pos = np.array([0.0, 0.0, 2000.0], dtype=np.float32)
+        self.uav_acc_xyz = np.zeros(shape=(3,), dtype=np.float32) # khởi tạo gia tốc
+        self.pre_acc_xyz = self.uav_acc_xyz
         # velocity [0, pi]
         self.vel_theta = 0. # góc lệch ban đầu
-        self.uav_velocity_xy = np.zeros(shape=(2,), dtype=np.float32)
-        # self.vel_mod = np.linalg.norm(self.uav_velocity_xy)
+        self.uav_velocity_xyz = np.zeros(shape=(3,), dtype=np.float32)
+
 
         state = self.deal_data()
-
-        return state
+        info = {}
+        return state, info
 
     def step(self, action):
         self.time += 1
         info = {}
-        if self.time < self._max_episode_steps:
-            done = False
-        else:
-            done = True
+        terminated = False
+        truncated = False
+        if self.time >= self._max_episode_steps:
+            truncated = True
 
-        # 处理动作空间变换
-        acc_theta = action[0] * np.pi  # [-pi, pi]
-        # if np.abs(acc_theta) < np.pi*0.01:
-        #     acc_theta *= 0.
-
-        acc_mod = self.uav_acc_edge[1] * (action[1] + 1) / 2  # [-acc_edge, acc_edge]
+        acc_theta = action[0] * np.pi            # Góc phương vị (XY): [-pi, pi]
+        acc_phi = action[1] * (np.pi / 2)        # Góc ngẩng (Trục Z): [-pi/2, pi/2]
+        acc_mod = self.uav_acc_edge[1] * (action[2] + 1) / 2  # Độ lớn: [0, 5]
         if acc_mod < self.uav_acc_edge[1] * 0.01:
             acc_mod *= 0.
 
-        _theta = self.vel_theta + acc_theta  # [-pi, pi]
+        # 2. TÍNH GIA TỐC 3 TRỤC
+        a_x = acc_mod * np.cos(acc_phi) * np.cos(acc_theta)
+        a_y = acc_mod * np.cos(acc_phi) * np.sin(acc_theta)
+        a_z = acc_mod * np.sin(acc_phi)
 
-        if _theta <= -np.pi:
-            acc_theta = (_theta + 2 * np.pi)
-        elif _theta > np.pi:
-            acc_theta = (_theta - 2 * np.pi)
-        else:
-            acc_theta = _theta
-        # cal accelerate
-        
-        self.pre_acc_xy = self.uav_acc_xy
-        self.uav_acc_xy = acc_mod * np.r_[np.cos(acc_theta), np.sin(acc_theta)]
-        
-        # constrain of accelarate
-        # temp = 0.
+        self.pre_acc_xyz = self.uav_acc_xyz
+        self.uav_acc_xyz = np.array([a_x, a_y, a_z], dtype=np.float32)
 
-        # uav position
-        delta_tran = self.uav_velocity_xy * slot_time + \
-                     0.5 * self.uav_acc_xy * (slot_time ** 2)
-        
-        # if np.linalg.norm(delta_tran) < self.env_edge[0, 1] * 0.01:
-        #     delta_tran *= 0.
-        
-        self.uav_pos += np.r_[delta_tran, 0]
-        # cal velocity
-        self.uav_velocity_xy += self.uav_acc_xy * slot_time
-        # 矫正
-        self.rectify_pos()
-        self.vel_mod = np.linalg.norm(self.uav_velocity_xy)
-        # 计算夹角
-        if self.uav_velocity_xy[1] > 0:
-            self.vel_theta = np.arccos(self.uav_velocity_xy[0] / (self.vel_mod + 1e-10))
-        else:
-            self.vel_theta = -np.arccos(self.uav_velocity_xy[0] / (self.vel_mod + 1e-10))
-        # whether position exceed
-        # 超速
+        # 3. CẬP NHẬT VỊ TRÍ 3D
+        delta_tran = self.uav_velocity_xyz * slot_time + 0.5 * self.uav_acc_xyz * (slot_time ** 2)
+        self.uav_pos += delta_tran
+
+        # 4. CẬP NHẬT VẬN TỐC 3D
+        self.uav_velocity_xyz += self.uav_acc_xyz * slot_time
+
+        # Phạt và nảy lại nếu đụng ranh giới bản đồ
+        reward_penalty = self.rectify_pos()
+
+        # Giới hạn tốc độ bay tối đa
+        self.vel_mod = np.linalg.norm(self.uav_velocity_xyz)
         if self.vel_mod > self.uav_velocity_edge[1]:
             ratio = self.uav_velocity_edge[1] / self.vel_mod
-            self.uav_velocity_xy *= ratio
-            # temp += (1 / ratio - 1) * 0.2
-        # temp += (np.linalg.norm(self.delta_acc_acc_xy) - 1) * 0.3
+            self.uav_velocity_xyz *= ratio
 
         state = self.deal_data()
-        reward = self.get_reward()
+        reward = self.get_reward() + reward_penalty # Cộng thêm điểm phạt nếu đập tường
 
-        return state, reward, done, info
+        return state, reward, terminated, truncated, info
 
     def render(self):
         now_time = self.time
@@ -198,64 +180,95 @@ class MakeEnv(gym.Env):
         return [seed]
 
     def deal_data(self):
-        self.delta_acc_acc_xy = self.uav_acc_xy - self.pre_acc_xy
-        # print(delta_acc_acc_xy)
-        self.pre_acc_xy = self.uav_acc_xy
+        self.delta_acc_acc_xyz = self.uav_acc_xyz - self.pre_acc_xyz
+        self.pre_acc_xyz = self.uav_acc_xyz
         inter_index, self.cars_pos_list, self.distance = self.cars_path.get_inter_distance(time=self.time,
                                                                                            point=self.uav_pos)
-        # if inter_index.any():
-        #     print('jiac')
-        self.h_fso = get_fso_gain(nlos_flag=inter_index, uav_pos=self.uav_pos, distance=self.distance, car_pos=np.array(self.cars_pos_list))
-        self.h_thz = get_thz_gain(nlos_flag=inter_index, uav_pos=self.uav_pos, car_pos=np.array(self.cars_pos_list), distance=self.distance)
-        # def get_thz_gain(uav_pos: np.ndarray, car_pos: np.ndarray)
-        # print(self.h_fso, self.h_rf)
+        z_uav = self.uav_pos[2]
+        self.P_solar = get_solar_power(z_uav)
+        # Tính năng lượng FSO nhận từ Backhaul (HAP -> IRS -> UAV)
+        h_hap_irs, _, _, _ = get_fso(self.hap_pos, self.irs_pos)
+        h_irs_uav, _, _, _ = get_fso_backhaul(self.uav_pos, self.irs_pos)
+        h_total_fso = h_hap_irs * h_irs_uav
+        self.P_R = get_fso_harvested_power(h_total_fso)
+        self.P_total = self.P_solar + self.P_R
 
-        self.rate, self.FSO_rate, self.THz_rate, self. real_rate, self.count_fso, self.count_thz = \
-            power_distribute(p_thz=self.p_thz_max, h_thz=self.h_thz, p_fso=self.p_fso_max, h_fso=self.h_fso,
-                             target_rate=self.target_rate)
-            # def power_distribute(p_thz: float, h_thz: np.ndarray,
-            #          p_fso: np.ndarray, h_fso: np.ndarray,
-            #          target_rate: float):
-        # self.r_all = self.rate
-        self.r_all = self.rate
-        # print(self.r_all)
+        h_fso_list = []
+        gamma_F_list = []
+        fso_rate_list = []
+        FSO_bandwidth= 1.0  # fso bandwidth
 
+        for car_pos in self.cars_pos_list:
+            if len(car_pos) == 2:
+                car_pos_3d = np.append(car_pos, 2.0)
+            else:
+                car_pos_3d = car_pos
+            # Gọi hàm tính kênh FSO từ UAV xuống Vehicle
+            h_total, hc, ha, hs = get_fso_access(self.uav_pos, car_pos_3d)
+            h_fso_list.append(h_total)
+            gamma_F = get_snr(h_total, self.P_total, self.uav_pos)
+            gamma_F_list.append(gamma_F)
+            
+            # Tính tốc độ dữ liệu (Data Rate) và chuyển sang Mbps
+            rate_bps = data_rate(gamma_F, FSO_bandwidth)
+            rate_bps = min(rate_bps, 3)
+            fso_rate_list.append(rate_bps) # Gbps
+
+        self.h_fso = np.array(h_fso_list)
+        self.gamma_F = np.array(gamma_F_list)
+        self.FSO_rate = np.array(fso_rate_list)
+        # Giả sử tốc độ tổng hiện tại chỉ có FSO
+        self.r_all = self.FSO_rate 
+        self.real_rate = self.r_all 
         self.store()
+        
+        # 3. TẠO TRẠNG THÁI (STATE)
+        # Chuẩn hóa khoảng cách có nhiễu Gaussian
+        dist_noisy = (self.distance + np.random.normal(loc=0, scale=2, size=(self.car_num,))) * (2 ** -10)
+        # Chuẩn hóa vận tốc
+        vel_norm = (self.uav_velocity_xyz / self.uav_velocity_edge[1] + 1) / 2
+        # Chuẩn hóa năng lượng (để đưa vào mạng neural)
+        energy_norm = np.array(self.P_total / self.P_th)
 
-        state = np.clip(np.r_[(self.uav_velocity_xy / self.uav_velocity_edge[1] + 1) / 2,
-                              (self.distance + np.random.normal(loc=0, scale=2, size=(self.car_num,))) * 2 ** -10,
-                        ], 0, 1)
-        # state = np.r_[(self.vel_theta / np.pi + 1) / 2,
-        #             self.vel_mod / self.uav_velocity_edge[1],
-        #             (self.distance + np.random.normal(loc=0, scale=1., size=(car_num,))) / 1000,
-        #             np.abs((self.r_all - target_rate) / target_rate)
-        #             ]
-        # state = np.clip(np.r_[(self.vel_theta / np.pi + 1) / 2,
-        #                       self.vel_mod / self.uav_velocity_edge[1],
-        #                       self.r_all / 80
-        #                       ], 0, 1)
-
+        # Ghép lại thành vector state
+        state = np.clip(np.r_[vel_norm, energy_norm, dist_noisy], 0, 1)
+        if np.isnan(state).any() or np.isinf(state).any():
+            print("PHÁT HIỆN LỖI NaN TẠI STATE!")
+            print("Khoảng cách:", self.distance)
+            print("Hệ số kênh truyền FSO:", self.h_fso)
+            print("Năng lượng P_total:", self.P_total)
         return state.astype(np.float32)
 
     def get_reward(self):
-        # temp = np.abs((self.r_all - self.delta_rate) / self.delta_rate)
-        # x1 = np.exp(-1.5 * temp.max()) - 1.
-        # delta_acc = np.clip(np.linalg.norm(self.uav_acc_xy - self.pre_acc_xy) - 1, 0, np.inf)
-        # x2 = np.exp(-1.3 * delta_acc) - 1.
-        # reward = x1 * 1 + x2 * 0.
-        x1 = (self.r_all - self.delta_rate)/self.delta_rate
-        x2 = np.linalg.norm(self.uav_acc_xy - self.pre_acc_xy)/self.uav_acc_edge[1]
-
-        reward = np.exp(-1.5 * np.abs(x1).max()) - 1.
-
-        return reward
+        R_min = self.target_rate
+        R_t = self.r_all  # Mảng tốc độ dữ liệu của các phương tiện
+        E_t = self.P_total # Chuẩn hóa năng lượng thu được tại bước t
+        
+        # Phân tách 2 trường hợp R_t < R_min và R_t >= R_min bằng boolean mask
+        penalty_mask = R_t < R_min
+        bonus_mask = R_t >= R_min
+        
+        # Khởi tạo mảng reward cùng kích thước với R_t
+        reward_array = np.zeros_like(R_t)
+        
+        # Tính reward cho trường hợp R_t < R_min
+        reward_array[penalty_mask] = -self.alpha * (R_min - R_t[penalty_mask])
+        
+        # Tính reward cho trường hợp R_t >= R_min
+        reward_array[bonus_mask] = self.beta * (R_t[bonus_mask] - R_min) + self.gamma * E_t
+        
+        # Lấy giá trị trung bình làm phần thưởng tổng thể cho môi trường
+        reward = np.mean(reward_array)
+        
+        return float(reward)
 
     def store(self):
-        uav = [self.uav_pos, self.uav_velocity_xy, self.uav_acc_xy]
+        uav = [self.uav_pos, self.uav_velocity_xyz, self.uav_acc_xyz]
         car = self.cars_pos_list
-        rate = [self.FSO_rate, self.THz_rate, self.r_all, self.r_all.mean(), self.real_rate, self.count_fso, self.count_thz]
-        channel = [self.h_fso, self.h_thz]
-        self.buffer.update(uav_info=uav, car_info=car, rate_info=rate, channel_info=channel)
+        rate = [self.r_all, self.r_all.mean()]
+        energy = [self.P_total, self.P_solar, self.P_R]
+        channel = [self.h_fso]
+        self.buffer.update(uav_info=uav, car_info=car, rate_info=rate, channel_info=channel, energy_info=energy)
 
     def rectify_pos(self):
         # [x, y, h]
@@ -263,18 +276,28 @@ class MakeEnv(gym.Env):
         coeff = np.array([1, -1])
         delta_x = (self.uav_pos[0] - self.env_edge[0]) * coeff
         delta_y = (self.uav_pos[1] - self.env_edge[1]) * coeff
-        # 矫正 x
-        index1 = delta_x < 0
-        if index1.any():
-            self.uav_pos[0] = self.env_edge[0][index1] * .9
-            self.uav_velocity_xy[0] *= -0.1
-            reward = -0.5
-        # 矫正 y
-        index2 = (delta_y < 0)
-        if index2.any():
-            self.uav_pos[1] = self.env_edge[1][index2] * .9
-            self.uav_velocity_xy[1] *= -0.1
-            reward = -0.5
+        delta_z = (self.uav_pos[2] - self.env_edge[2]) * coeff
+        if (delta_x < 0).any():
+            # Giữ vị trí cách biên 1 mét thay vì nhân 0.9 để tránh dịch chuyển tức thời
+            self.uav_pos[0] = np.clip(self.uav_pos[0], self.env_edge[0][0] + 1.0, self.env_edge[0][1] - 1.0)
+            self.uav_velocity_xyz[0] *= -0.5
+            reward -= 0.5
+            
+        # Xử lý bật tường trục Y
+        if (delta_y < 0).any():
+            self.uav_pos[1] = np.clip(self.uav_pos[1], self.env_edge[1][0] + 1.0, self.env_edge[1][1] - 1.0)
+            self.uav_velocity_xyz[1] *= -0.5
+            reward -= 0.5
+            
+        # Nảy lại ở mặt đất (Z=0) và trần bay (Z=5000)
+        if (delta_z < 0).any():
+            if self.uav_pos[2] < self.env_edge[2][0]:
+                self.uav_pos[2] = 10.0 # Không cho chìm xuống đất, bật lên 10m
+            elif self.uav_pos[2] > self.env_edge[2][1]:
+                # Giữ cách trần 1 mét
+                self.uav_pos[2] = self.env_edge[2][1] - 1
+            self.uav_velocity_xyz[2] *= -0.5
+            reward -= 1.0 # Phạt nặng hơn nếu rớt
 
         return reward
 
