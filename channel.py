@@ -2,6 +2,9 @@ import numpy as np
 import scipy.integrate as integrate
 from scipy import special
 from scipy.special import erf
+import pandas as pd                                  
+from scipy.interpolate import LinearNDInterpolator
+from scipy.optimize import fsolve
 
 lamda = 1550e-9
 k = 2*np.pi/lamda
@@ -16,8 +19,54 @@ r_cloud = 3.33 # Bán kính trung bình giọt mây Stratus (μm)
 rho_water = 1.0 # Mật độ nước (g/cm3)
 N_c = (CLWC / ((4/3) * np.pi * (r_cloud**3) * rho_water * 1e-6)) 
 # Tọa độ lớp mây
-H_cloud_min = 500 # [m]
-H_cloud_max = 1000 # [m]
+H_cloud_min = 2000 # [m]
+H_cloud_max = 4000 # [m]
+# --- Tham số hệ thống ---
+c_speed = 3e8                  # Tốc độ ánh sáng (m/s)
+q_charge = 1.6e-19             # Điện tích electron (C)
+E_0 = 0.26961                  # Bức xạ quang phổ mặt trời nền (kW/m2.um)
+# B_0 = 250e9                    # Băng thông quang (Optical bandwidth) (Hz)
+k_B = 1.38e-23                 # Hằng số Boltzmann (J/K)
+R_L = 50                       # Điện trở tải (Load resistance) (Ohm)
+T_thermal = 298
+FSO_bandwidth = 1 # GHz             
+Delta_f = FSO_bandwidth*1e9 / 2 # Efficient BW
+Delta_lamda = (FSO_bandwidth*1e9 * (lamda ** 2)) / c_speed
+# =====================================================================
+# THAM SỐ THU HOẠCH NĂNG LƯỢNG
+# =====================================================================
+
+# --- Tham số Năng lượng Mặt trời ---
+eta_p = 0.9           # Hiệu suất chuyển đổi quang điện 
+A_solar = 0.5         # Diện tích tấm pin mặt trời UAV (m2)
+G_r = 1361            # Bức xạ mặt trời trung bình (W/m2)
+A_0_solar = 0.8978    # Giá trị truyền qua khí quyển tối đa (Đổi tên để không trùng với A_0 của Pointing error)
+B_0_solar = 0.2804    # Hệ số dập tắt của không khí (m^-1)
+delta = 8000          # Chiều cao thang đo Trái Đất (m)
+beta_c = 0.01         # Hệ số suy hao năng lượng mặt trời qua mây (Ví dụ: 0.001 - 0.02)
+beta_a = 0.5
+
+# --- Tham số Năng lượng FSO ---
+V_t = 0.025           # Điện áp nhiệt (Thermal voltage ~ 25mV)
+I_0 = 1e-9           # Dòng bão hòa tối của P-D (Dark saturation current, Ampere)
+eta_eo = 0.9          # Hiệu suất chuyển đổi quang-điện
+R_xi = 0.6            # Độ nhạy P-D (A/W)
+P_s = 1               # Công suất phát FSO từ HAP (Watts)
+B_bias = 0.04         # Dòng DC Bias (Ampere)
+
+def transmittance(file_path, environment='Nông thôn (T)'):
+    df = pd.read_excel(file_path)
+    df = df[df['h_sensor (km)'].astype(str).str.isnumeric()].copy()
+    df['V (km)'] = df['V (km)'].ffill().astype(float)
+    df['h_sensor (km)'] = df['h_sensor (km)'].astype(float)
+    df[environment] = df[environment].astype(float)
+    points = df[['V (km)', 'h_sensor (km)']].values
+    values = df[environment].values
+    return LinearNDInterpolator(points, values)
+
+csv_file_path = r"C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\env\data\data_khihau\Tropical.csv.xlsx"
+env_type = 'Nông thôn (T)'
+t_interpolator = transmittance(csv_file_path, env_type)
 
 # -------------------
 #=========== HAP-IRS channel ===============
@@ -106,7 +155,8 @@ def get_fso(hap_pos: np.ndarray, irs_pos: np.ndarray) -> np.ndarray:
                        (np.pi * omega_0 ** 2)) ** 2)
     v = (a_irs * np.sqrt(np.pi)) / (omega_l * np.sqrt(2))
     A_0 = special.erf(v)**2
-    omega_l2_eeq = omega_l**2 * (np.sqrt(np.pi) * erf(v)) / (2 * v * np.exp(-v**2))
+    den = np.maximum(2 * v * np.exp(-v**2), 1e-12)
+    omega_l2_eeq = omega_l**2 * (np.sqrt(np.pi) * special.erf(v)) / den
     rho_l = 0
     # rho_l = np.random.rayleigh(ps_jitter)
     hs = A_0*np.exp(-2*(rho_l/omega_l2_eeq)**2)
@@ -129,7 +179,7 @@ def get_fso_backhaul(uav_pos: np.ndarray, irs_pos: np.ndarray) -> np.ndarray:
     H_UAV = uav_pos[-1]
     H_IRS = irs_pos[-1]
 # Tính góc Zenith 
-    delta_h = np.abs(H_IRS - H_UAV)
+    delta_h = np.maximum(np.abs(H_UAV - H_IRS), 1e-6)
     r_dis = np.linalg.norm(irs_pos[0:-1] - uav_pos[0:-1])
     r_dis = np.maximum(r_dis, 1e-6) # Tránh lỗi chia cho 0
     
@@ -177,15 +227,19 @@ def get_fso_backhaul(uav_pos: np.ndarray, irs_pos: np.ndarray) -> np.ndarray:
         return (0.00594 * (v_wind / 27) ** 2 * (h * 10 ** -5) ** 10 * np.exp(-h / 1000) + \
             2.7 * 10 ** -16 * np.exp(-h / 1500) + Cn2_0 * np.exp(-h / 100)) * \
                 np.abs(h - H_UAV) ** (5/6)
-    integral_value,_ = integrate.quad(integrand, H_IRS, H_UAV)
+    z_lower = np.minimum(H_IRS, H_UAV)
+    z_upper = np.maximum(H_IRS, H_UAV)
+    integral_value,_ = integrate.quad(integrand, z_lower, z_upper)
     sigma_R2 = 2.25 * (k ** (7/6)) * (sec ** (11/6)) * integral_value
 
 # -------------------
 # Gamma-Gamma turbulence
 # -------------------
 
-    alpha_f = 1.0 / (np.exp(0.49 * sigma_R2 / (1 + 1.11 * sigma_R2**(12/5))**(7/6)) - 1)
-    beta_f = 1.0 / (np.exp(0.51 * sigma_R2 / (1 + 0.69 * sigma_R2**(12/5))**(5/6)) - 1)
+    denom_alpha = np.maximum(np.exp(0.49 * sigma_R2 / (1 + 1.11 * sigma_R2**(12/5))**(7/6)) - 1, 1e-6)
+    alpha_f = 1.0 / denom_alpha
+    denom_beta = np.maximum(np.exp(0.51 * sigma_R2 / (1 + 0.69 * sigma_R2**(12/5))**(5/6)) - 1, 1e-6)
+    beta_f = 1.0 / denom_beta
     X = np.random.gamma(shape=alpha_f, scale=1.0/alpha_f)
     Y = np.random.gamma(shape=beta_f, scale=1.0/beta_f)
     ha = X * Y
@@ -201,7 +255,8 @@ def get_fso_backhaul(uav_pos: np.ndarray, irs_pos: np.ndarray) -> np.ndarray:
                        (np.pi * omega_0 ** 2)) ** 2)
     v = (a_rx * np.sqrt(np.pi)) / (omega_l * np.sqrt(2))
     A_0 = special.erf(v)**2
-    omega_l2_eeq = omega_l**2 * (np.sqrt(np.pi) * special.erf(v)) / (2 * v * np.exp(-v**2))
+    den = np.maximum(2 * v * np.exp(-v**2), 1e-12)
+    omega_l2_eeq = omega_l**2 * (np.sqrt(np.pi) * special.erf(v)) / den
 
 # Mô phỏng dao động theo phân bố Rice
 
@@ -229,7 +284,7 @@ def get_fso_access(uav_pos: np.ndarray, car_pos: np.ndarray) -> np.ndarray:
     H_UAV = uav_pos[-1]
     H_CAR = car_pos[-1]
 # Tính góc Zenith 
-    delta_h = np.abs(H_CAR - H_UAV)
+    delta_h = np.maximum(np.abs(H_CAR - H_UAV), 1e-6) # Thêm np.maximum để chặn delta_h = 0
     r_dis = np.linalg.norm(uav_pos[0:-1] - car_pos[0:-1])
     r_dis = np.maximum(r_dis, 1e-6) # Tránh lỗi chia cho 0
     
@@ -277,15 +332,19 @@ def get_fso_access(uav_pos: np.ndarray, car_pos: np.ndarray) -> np.ndarray:
         return (0.00594 * (v_wind / 27) ** 2 * (h * 10 ** -5) ** 10 * np.exp(-h / 1000) + \
             2.7 * 10 ** -16 * np.exp(-h / 1500) + Cn2_0 * np.exp(-h / 100)) * \
                 np.abs(h - H_UAV) ** (5/6)
-    integral_value,_ = integrate.quad(integrand, H_CAR, H_UAV)
+    z_lower = np.minimum(H_CAR, H_UAV)
+    z_upper = np.maximum(H_CAR, H_UAV)
+    integral_value,_ = integrate.quad(integrand, z_lower, z_upper)
     sigma_R2 = 2.25 * (k ** (7/6)) * (sec ** (11/6)) * integral_value
 
 # -------------------
 # Gamma-Gamma turbulence
 # -------------------
 
-    alpha_f = 1.0 / (np.exp(0.49 * sigma_R2 / (1 + 1.11 * sigma_R2**(12/5))**(7/6)) - 1)
-    beta_f = 1.0 / (np.exp(0.51 * sigma_R2 / (1 + 0.69 * sigma_R2**(12/5))**(5/6)) - 1)
+    denom_alpha = np.maximum(np.exp(0.49 * sigma_R2 / (1 + 1.11 * sigma_R2**(12/5))**(7/6)) - 1, 1e-6)
+    alpha_f = 1.0 / denom_alpha
+    denom_beta = np.maximum(np.exp(0.51 * sigma_R2 / (1 + 0.69 * sigma_R2**(12/5))**(5/6)) - 1, 1e-6)
+    beta_f = 1.0 / denom_beta
     X = np.random.gamma(shape=alpha_f, scale=1.0/alpha_f)
     Y = np.random.gamma(shape=beta_f, scale=1.0/beta_f)
     ha = X * Y
@@ -301,7 +360,8 @@ def get_fso_access(uav_pos: np.ndarray, car_pos: np.ndarray) -> np.ndarray:
                        (np.pi * omega_0 ** 2)) ** 2)
     v = (a_rx * np.sqrt(np.pi)) / (omega_l * np.sqrt(2))
     A_0 = special.erf(v)**2
-    omega_l2_eeq = omega_l**2 * (np.sqrt(np.pi) * special.erf(v)) / (2 * v * np.exp(-v**2))
+    den = np.maximum(2 * v * np.exp(-v**2), 1e-12)
+    omega_l2_eeq = omega_l**2 * (np.sqrt(np.pi) * special.erf(v)) / den
 
 # Mô phỏng dao động theo phân bố Rice
 
@@ -309,11 +369,147 @@ def get_fso_access(uav_pos: np.ndarray, car_pos: np.ndarray) -> np.ndarray:
     y_rpe = np.random.normal(0, sigma_p)
     r_pe2 = x_rpe**2 + y_rpe**2
     hs = A_0 * np.exp(-2 * (r_pe2 / omega_l2_eeq))
-
-# -------------------
-# Total channel UAV-Vehices
-# -------------------
-
     h_total = hc*ha*hs
-
     return h_total, hc, ha, hs
+
+# =====================================================================
+# CÁC HÀM TÍNH TOÁN NĂNG LƯỢNG (POWER)
+# =====================================================================
+
+def get_solar_power(z):
+    """
+    Tính công suất năng lượng mặt trời thu được tại độ cao z (W).
+    """
+    # Tính độ truyền qua của khí quyển alpha_a(z)
+    alpha_a = A_0_solar - B_0_solar * np.exp(-z / delta)
+    
+    if z >= H_cloud_max:
+        # UAV bay trên mây
+        return eta_p * A_solar * G_r * alpha_a
+    elif H_cloud_min <= z < H_cloud_max:
+        # UAV bay trong mây 
+        alpha_c = np.exp(-beta_c * (H_cloud_max - z))
+        return eta_p * A_solar * G_r * alpha_a * alpha_c
+    else:
+        # UAV bay dưới mây 
+        alpha_c = np.exp(-beta_c * (H_cloud_max - H_cloud_min))
+        alpha_d = np.exp(-beta_a * (H_cloud_min - z))
+        return eta_p * A_solar * G_r * alpha_a * alpha_c * alpha_d
+
+def get_fso_harvested_power(h_total):
+    """
+    Tính công suất thu hoạch được từ sóng mang FSO 
+    """
+    # Công thức: P_R = 1.5 * V_t * (eta * h_total * R_xi * A * sqrt(P_s) * B)^2 / I_0
+    core_term = eta_eo * h_total * R_xi * a_rx * np.sqrt(P_s) * B_bias
+    p_fso = (1.5 * V_t * (core_term ** 2)) / I_0
+    return p_fso
+
+# =====================================================================
+# HÀM TỔNG HỢP: TÍNH TỔNG NĂNG LƯỢNG TRONG DURATION
+# =====================================================================
+
+def total_harvested_energy(hap_pos, irs_pos, uav_pos, duration=300):
+    """
+    Tính tổng năng lượng UAV thu hoạch được trong khoảng thời gian duration (Joules).
+    Xét 3 trường hợp: Trên mây, Trong mây, Dưới mây.
+    """
+    z_uav = uav_pos[-1]
+    
+    # Tính năng lượng mặt trời (chia cho N xe)
+    P_solar = get_solar_power(z_uav) / 5
+    
+    # Tính kênh FSO và năng lượng FSO
+    if z_uav >= H_cloud_max:
+        # 1. UAV TRÊN MÂY: Nhận trực tiếp FSO từ HAP (HAP - UAV)
+        h_total_fso, _, _, _ = get_fso(hap_pos, uav_pos)
+        
+    elif H_cloud_min <= z_uav < H_cloud_max:
+        # 2. UAV TRONG MÂY: Nhận FSO qua IRS (HAP - IRS - UAV)
+        h_hap_irs, _, _, _ = get_fso(hap_pos, irs_pos)
+        h_irs_uav, _, _, _ = get_fso_backhaul(uav_pos, irs_pos)
+        h_total_fso = h_hap_irs * h_irs_uav
+        
+    else:
+        # 3. UAV DƯỚI MÂY: Nhận FSO qua IRS (HAP - IRS - UAV)
+        h_hap_irs, _, _, _ = get_fso(hap_pos, irs_pos)
+        h_irs_uav, _, _, _ = get_fso_backhaul(uav_pos, irs_pos)
+        h_total_fso = h_hap_irs * h_irs_uav
+        
+    P_fso = get_fso_harvested_power(h_total_fso) / 5 # chia cho N xe
+    
+    # Tổng công suất (W)
+    P_total = P_solar + P_fso
+    
+    # Tổng năng lượng (Joules = Watts * seconds)
+    E_total = P_total * duration
+    
+    return E_total, P_solar, P_fso, P_total
+# -------------------
+# Total channel UAV-Vehices and SNR 
+# -------------------
+def get_snr(h_total, P_fso, uav_pos):
+    H_UAV = uav_pos[-1]
+    fso_visibility = (1002 / (CLWC * N_c) ** 0.6473) / 1000
+    sigma2_FSO = 1e-17
+    R_acc = 1
+    if fso_visibility < 18.0:
+        V_snapped = 5.0
+    else:
+        V_snapped = 30.0
+    T_trans_raw = t_interpolator(V_snapped, H_UAV/1000)
+    
+    # THÊM ĐOẠN NÀY ĐỂ BẪY LỖI: Nếu nội suy ra NaN (do vượt quá dữ liệu file Excel)
+    if np.isnan(T_trans_raw):
+        # Fallback về 1 giá trị mặc định hợp lý (ví dụ 0.5) 
+        # Hoặc bạn có thể tự chỉnh con số này dựa theo dữ liệu Excel của bạn
+        T_trans = 0.5 
+    else:
+        T_trans = float(T_trans_raw)
+    P_b = (E_0*1e9) * T_trans * np.pi * (a_rx ** 2) * Delta_lamda
+    shot_noise_term = 2 * q_charge * R_xi * P_b
+    thermal_noise_term = (4 * k_B * T_thermal / R_L) * Delta_f
+    sigma_N_square = shot_noise_term + thermal_noise_term
+    gamma_F = (P_fso * R_acc * h_total)**2 / ((sigma2_FSO + sigma_N_square) * FSO_bandwidth)   
+    return gamma_F
+
+# =====================================================================
+# DATA RATE
+# =====================================================================
+def data_rate(gamma_F, bandwidth_ghz):
+
+    B_hz = bandwidth_ghz 
+    data_rate_bps = (B_hz / 2) * np.log2(1 + gamma_F) # Gbps
+    
+    return data_rate_bps
+
+# if __name__ == "__main__":
+#     print("=== ĐANG TEST KÊNH TRUYỀN TỪ CHANNEL.PY ===")
+    
+#     # Giả lập tọa độ
+#     hap_pos = np.array([0, 0, 20000])
+#     irs_pos = np.array([0, 0, 80])
+#     uav_pos = np.array([100, 100, 1000])
+#     car_pos = np.array([10, 10, 2])
+    
+#     # 1. Tính toán năng lượng trước để lấy P_fso thu hoạch được
+#     E_total, P_solar, P_fso_harvested, P_total_harvested = total_harvested_energy(hap_pos, irs_pos, uav_pos)
+    
+#     # 2. Tính hệ số kênh truyền từ UAV xuống Xe
+#     h_total_access, hc_acc, ha_acc, hs_acc = get_fso_access(uav_pos, car_pos)
+    
+#     # 3. Truyền P_fso_harvested vào hàm SNR mới
+#     gamma_F = get_snr(h_total_access, P_fso_harvested, uav_pos)
+    
+#     # 4. Tính Rate
+#     rate = data_rate(gamma_F, FSO_bandwidth)
+    
+#     print("\n--- KẾT QUẢ TÍNH ENERGY ---")
+#     print(f"Solar Power: {P_solar:.4f} W")
+#     print(f"FSO Power Harvested: {P_fso_harvested:.10f} W")
+#     print(f"Tổng công suất P_total: {P_total_harvested:.4f} W") 
+    
+#     print("\n--- KẾT QUẢ TÍNH RATE (UAV -> XE) ---")
+#     print(f"Hệ số kênh truyền (h_total): {h_total_access:.6f}")
+#     print(f"SNR (gamma_F): {gamma_F:.4f}")
+#     print(f"Data Rate: {rate:.4f} Gbps")
