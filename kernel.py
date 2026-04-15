@@ -12,12 +12,11 @@ from uav import MakeEnv
 
 
 
-
 def evaluate_policy(args, env, agent, state_norm):
     times = 2 ** 3 # Thực hiện times lần để ước lượng phần thưởng trung bình
     evaluate_reward = 0
     for _ in range(times):
-        s = env.reset()
+        s, _ = env.reset()
         if args.use_state_norm:
             # During the evaluating,update=False
             s = state_norm(s, update=False)
@@ -30,7 +29,8 @@ def evaluate_policy(args, env, agent, state_norm):
                 action = 2 * (a - 0.5) * args.max_action  # [0,1]->[-max,max]
             else:
                 action = a
-            s_, r, done, _ = env.step(action)
+            s_, r, terminated, truncated, info = env.step(a)
+            done = terminated or truncated
             if args.use_state_norm:
                 s_ = state_norm(s_, update=False)
             episode_reward += r
@@ -38,7 +38,6 @@ def evaluate_policy(args, env, agent, state_norm):
         evaluate_reward += episode_reward
 
     return evaluate_reward / times
-
 
 def main(args, seed, speed, target_rate, ROOT_PATH=None, load_path=None, s_mean_std=None):
     # Tạo môi trường đào tạo và đánh giá
@@ -102,7 +101,7 @@ def main(args, seed, speed, target_rate, ROOT_PATH=None, load_path=None, s_mean_
 
         while episode_num < args.max_train_episodes:
             # Khởi tạo đơn episode
-            s = env.reset()
+            s, _ = env.reset()
             if args.use_state_norm:
                 s = state_norm(s)
             if args.use_reward_scaling:
@@ -121,7 +120,8 @@ def main(args, seed, speed, target_rate, ROOT_PATH=None, load_path=None, s_mean_
                 else:
                     action = a
 
-                s_, r, done, _ = env.step(action)
+                s_, r, terminated, truncated, info = env.step(action)
+                done = terminated or truncated
                 ep_r += r
 
                 if args.use_state_norm:
