@@ -19,7 +19,7 @@ class Buffer:
         # # rate_fso-(num,), rate_rf-(num,), rate_all-(num,), rate_mean-(1,)
         # self.rate_info = np.zeros(shape=(self.max_time, self.car_num + 1), dtype=object)
 
-    def update(self, uav_info: list, car_info: list, rate_info: list, channel_info: list):
+    def update(self, uav_info: list, car_info: list, rate_info: list, energy_info: list, channel_info: list):
         # uav
         self.uav_info['position'][self.time, :] = uav_info[0]
         self.uav_info['velocity'][self.time, :] = uav_info[1]
@@ -29,16 +29,15 @@ class Buffer:
             name = "car_" + str(i)
             self.car_info[name][self.time, :] = car_info[i]
         # rate
-        self.rate_info["fso_rate"][self.time, :] = rate_info[0]
-        self.rate_info["thz_rate"][self.time, :] = rate_info[1]
-        self.rate_info["all_rate"][self.time, :] = rate_info[2]
-        self.rate_info["mean_rate"][self.time] = rate_info[3]
-        self.rate_info["real_rate"][self.time, :] = rate_info[4]
-        self.rate_info["count_fso"][self.time, :] = rate_info[5]
-        self.rate_info["count_thz"][self.time, :] = rate_info[6]
+        self.rate_info['fso_rate'][self.time, :] = rate_info[0]
+        self.rate_info['mean_rate'][self.time] = rate_info[1]
+        # energy
+        self.energy_info['total energy'][self.time] = energy_info[0]
+        self.energy_info['solar energy'][self.time] = energy_info[1]
+        self.energy_info['fso energy'][self.time] = energy_info[2]
+
         # channel
-        self.channel_info["gain_fso"][self.time, :] = channel_info[0]
-        self.channel_info["gain_thz"][self.time, :] = channel_info[1]
+        self.channel_info['gain_fso'][self.time, :] = channel_info[0]
         self.time += 1
 
     def save(self, path, episode: int, target_rate):
@@ -48,14 +47,15 @@ class Buffer:
         np.save(path + "uav_" + str(target_rate), self.uav_info)
         np.save(path + "car_" + str(target_rate), self.car_info)
         np.save(path + "rate_" + str(target_rate), self.rate_info)
+        np.save(path + "energy_" + str(target_rate), self.energy_info)
 
     def clear(self):
         # clear
         self.time = 0
         # uav_pos-(3,), uav_acc-(2,), uav_vel-(2,)
         self.uav_info = {"position": np.zeros(shape=(self.max_time, 3), dtype=np.float32),
-                         "velocity": np.zeros(shape=(self.max_time, 2), dtype=np.float32),
-                         "accelerate": np.zeros(shape=(self.max_time, 2), dtype=np.float32)}
+                         "velocity": np.zeros(shape=(self.max_time, 3), dtype=np.float32),
+                         "accelerate": np.zeros(shape=(self.max_time, 3), dtype=np.float32)}
         # car_pos-(2,) all-num
         self.car_info = {}
         for i in range(self.car_num):
@@ -64,16 +64,15 @@ class Buffer:
             self.car_info.update(temp)
         # rate_fso-(num,), rate_rf-(num,), rate_all-(num,), rate_mean-(1,)
         self.rate_info = {"fso_rate": np.zeros(shape=(self.max_time, self.car_num), dtype=np.float32),
-                          "thz_rate": np.zeros(shape=(self.max_time, self.car_num), dtype=np.float32),
-                          "all_rate": np.zeros(shape=(self.max_time, self.car_num), dtype=np.float32),
-                          "mean_rate": np.zeros(shape=(self.max_time,), dtype=np.float32),
-                          "real_rate": np.zeros(shape=(self.max_time, self.car_num), dtype=np.float32),
-                          "count_fso": np.zeros(shape=(self.max_time, self.car_num), dtype=np.float32),
-                          "count_thz": np.zeros(shape=(self.max_time, self.car_num), dtype=np.float32)}
+                          "mean_rate": np.zeros(shape=(self.max_time,), dtype=np.float32)}
        
-        self.channel_info = {"gain_fso": np.zeros(shape=(self.max_time, self.car_num), dtype=np.float32),
-                             "gain_thz": np.zeros(shape=(self.max_time, self.car_num), dtype=np.float32)}
+        self.channel_info = {"gain_fso": np.zeros(shape=(self.max_time, self.car_num), dtype=np.float32)}
 
+        self.energy_info = {
+            "total energy": np.zeros(shape=(self.max_time,), dtype=np.float32),
+            "solar energy": np.zeros(shape=(self.max_time,), dtype=np.float32),
+            "fso energy": np.zeros(shape=(self.max_time,), dtype=np.float32)
+            }
 
 
 if __name__ == "__main__":
