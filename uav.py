@@ -27,10 +27,9 @@ class MakeEnv(gym.Env):
         # self.p_fso_max = fso_power * np.ones(shape=(self.car_num,))  # average power in dBm
         self.p_fso_max = fso_power
         self.target_rate = target_rate # R_E
-        self.alpha = 5.0  # Hệ số phạt (lớn)
-        self.beta = 2       # Trọng số rate (ưu tiên cao)
+        self.alpha = 10.0  # Hệ số phạt (lớn)
+        self.beta = 1       # Trọng số rate (ưu tiên cao)
         self.gamma = 0.01  # Trọng số energy (nhỏ hơn)
-        self.P_th = 1
         self.hap_pos = np.array([0, 0, 20000]) 
         self.irs_pos = np.array([0, 0, 80])
         # edge constraint
@@ -196,7 +195,7 @@ class MakeEnv(gym.Env):
         P_transmit_per_car = P_transmit_total / self.car_num # Chia đều cho các xe
         # NĂNG LƯỢNG THỰC TẾ SẠC VÀO PIN 
         self.P_battery = self.P_solar + (self.P_R * energy_ratio)
-        self.P_total = self.P_solar + P_transmit_per_car
+        self.P_total = self.P_solar + self.P_R
         h_fso_list = []
         gamma_F_list = []
         fso_rate_list = []
@@ -240,13 +239,13 @@ class MakeEnv(gym.Env):
             print("PHÁT HIỆN LỖI NaN TẠI STATE!")
             print("Khoảng cách:", self.distance)
             print("Hệ số kênh truyền FSO:", self.h_fso)
-            print("Năng lượng P_total:", self.P_total)
+            print("Năng lượng P_battery:", self.P_battery)
         return state.astype(np.float32)
 
     def get_reward(self):
         R_min = self.target_rate
         R_t = self.r_all  # Mảng tốc độ dữ liệu của các phương tiện
-        E_t = self.P_total # Chuẩn hóa năng lượng thu được tại bước t
+        E_t = self.P_battery # Chuẩn hóa năng lượng thu được tại bước t
         
         # Phân tách 2 trường hợp R_t < R_min và R_t >= R_min bằng boolean mask
         penalty_mask = R_t < R_min
@@ -270,7 +269,7 @@ class MakeEnv(gym.Env):
         uav = [self.uav_pos, self.uav_velocity_xyz, self.uav_acc_xyz]
         car = self.cars_pos_list
         rate = [self.r_all, self.r_all.mean()]
-        energy = [self.P_total, self.P_solar, self.P_R]
+        energy = [self.P_battery, self.P_solar, self.P_R * energy_ratio]
         channel = [self.h_fso]
         self.buffer.update(uav_info=uav, car_info=car, rate_info=rate, channel_info=channel, energy_info=energy)
 
