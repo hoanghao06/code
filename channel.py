@@ -438,20 +438,18 @@ def total_harvested_energy(hap_pos, irs_pos, uav_pos, duration=300):
         h_total_fso = h_hap_irs * h_irs_uav
         
     P_fso = get_fso_harvested_power(h_total_fso) 
-    P_total = P_solar + P_fso
-
     P_battery_fso = P_fso * energy_ratio               # 20% của P_fso sạc vào pin
     P_transmit_total = P_fso * (1 - energy_ratio)      # 80% của P_fso để phát tín hiệu
     P_transmit_per_car = P_transmit_total / number_car # Chia đều cho số xe
     
     # Tổng năng lượng (Joules = Watts * seconds)
-    E_total = P_total * duration
+    E_total = (P_solar + P_battery_fso) * duration
     
-    return E_total, P_solar, P_fso, P_total, P_battery_fso, P_transmit_per_car
+    return E_total, P_solar, P_fso, P_battery_fso, P_transmit_per_car
 # -------------------
 # Total channel UAV-Vehices and SNR 
 # -------------------
-def get_snr(h_total, P_transmit_per_car, uav_pos):
+def get_snr(h_total, P_transmit_total, uav_pos):
     H_UAV = uav_pos[-1]
     fso_visibility = (1002 / (CLWC * N_c) ** 0.6473) / 1000
     sigma2_FSO = 1e-17
@@ -473,7 +471,7 @@ def get_snr(h_total, P_transmit_per_car, uav_pos):
     shot_noise_term = 2 * q_charge * R_xi * P_b
     thermal_noise_term = (4 * k_B * T_thermal / R_L) * Delta_f
     sigma_N_square = shot_noise_term + thermal_noise_term
-    gamma_F = (P_transmit_per_car * R_acc * h_total)**2 / ((sigma2_FSO + sigma_N_square) * FSO_bandwidth)   
+    gamma_F = (P_transmit_total * R_acc * h_total)**2 / ((sigma2_FSO + sigma_N_square) * FSO_bandwidth)   
     return gamma_F
 
 # =====================================================================
@@ -487,32 +485,41 @@ def data_rate(gamma_F, bandwidth_ghz):
     return data_rate_bps
 
 # if __name__ == "__main__":
-#     print("=== ĐANG TEST KÊNH TRUYỀN TỪ CHANNEL.PY ===")
-    
-#     # Giả lập tọa độ
+#     print("=== ĐANG TEST KÊNH TRUYỀN VỚI 3 KỊCH BẢN MÂY ===")
+
 #     hap_pos = np.array([0, 0, 20000])
 #     irs_pos = np.array([0, 0, 80])
-#     uav_pos = np.array([100, 100, 1000])
 #     car_pos = np.array([10, 10, 2])
+
+#     uav_cases = {
+#         "1. UAV TRÊN MÂY (z = 5000m)": np.array([100, 100, 5000]),
+#         "2. UAV TRONG MÂY (z = 3000m)": np.array([100, 100, 3000]),
+#         "3. UAV DƯỚI MÂY (z = 1000m)": np.array([100, 100, 1000])
+#     }
     
-#     # 1. Tính toán năng lượng trước để lấy P_fso thu hoạch được
-#     E_total, P_solar, P_fso_harvested, P_total_harvested = total_harvested_energy(hap_pos, irs_pos, uav_pos)
-    
-#     # 2. Tính hệ số kênh truyền từ UAV xuống Xe
-#     h_total_access, hc_acc, ha_acc, hs_acc = get_fso_access(uav_pos, car_pos)
-    
-#     # 3. Truyền P_fso_harvested vào hàm SNR mới
-#     gamma_F = get_snr(h_total_access, P_fso_harvested, uav_pos)
-    
-#     # 4. Tính Rate
-#     rate = data_rate(gamma_F, FSO_bandwidth)
-    
-#     print("\n--- KẾT QUẢ TÍNH ENERGY ---")
-#     print(f"Solar Power: {P_solar:.4f} W")
-#     print(f"FSO Power Harvested: {P_fso_harvested:.10f} W")
-#     print(f"Tổng công suất P_total: {P_total_harvested:.4f} W") 
-    
-#     print("\n--- KẾT QUẢ TÍNH RATE (UAV -> XE) ---")
-#     print(f"Hệ số kênh truyền (h_total): {h_total_access:.6f}")
-#     print(f"SNR (gamma_F): {gamma_F:.4f}")
-#     print(f"Data Rate: {rate:.4f} Gbps")
+#     for case_name, uav_pos in uav_cases.items():
+#         print(f"\n{'='*50}")
+#         print(f"{case_name}")
+#         print(f"{'='*50}")
+
+#         E_total, P_solar, P_fso, P_battery_fso, P_transmit_per_car = total_harvested_energy(hap_pos, irs_pos, uav_pos)
+ 
+#         h_total_access, hc_acc, ha_acc, hs_acc = get_fso_access(uav_pos, car_pos)
+ 
+#         gamma_F = get_snr(h_total_access, P_transmit_per_car, uav_pos)
+        
+#         # 4. Tính Data Rate
+#         rate = data_rate(gamma_F, FSO_bandwidth)
+        
+#         # 5. In kết quả kiểm tra
+#         print(">> THÔNG SỐ NĂNG LƯỢNG:")
+#         print(f"   - Năng lượng mặt trời (P_solar):        {P_solar:.4f} W")
+#         print(f"   - FSO thu hoạch (P_fso):                {P_fso:.10e} W")
+#         print(f"   - Sạc vào pin UAV (20% P_fso):          {P_battery_fso:.10e} W")
+#         print(f"   - Cấp phát cho 1 xe (P_transmit):       {P_transmit_per_car:.10e} W")
+#         print(f"   - Tổng năng lượng trong 300s (E_total): {E_total:.4f} J")
+        
+#         print("\n>> THÔNG SỐ TRUYỀN DẪN (UAV -> XE):")
+#         print(f"   - Hệ số kênh truyền (h_total_access):   {h_total_access:.6e}")
+#         print(f"   - SNR (gamma_F):                        {gamma_F:.6e}")
+#         print(f"   - Tốc độ truyền (Data Rate):            {rate:.6f} Gbps")
