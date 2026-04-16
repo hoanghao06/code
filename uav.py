@@ -28,7 +28,7 @@ class MakeEnv(gym.Env):
         self.p_fso_max = fso_power
         self.target_rate = target_rate # R_E
         self.alpha = 10.0  # Hệ số phạt (lớn)
-        self.beta = 1       # Trọng số rate (ưu tiên cao)
+        self.beta = 5       # Trọng số rate (ưu tiên cao)
         self.gamma = 0.01  # Trọng số energy (nhỏ hơn)
         self.hap_pos = np.array([0, 0, 20000]) 
         self.irs_pos = np.array([0, 0, 80])
@@ -214,7 +214,7 @@ class MakeEnv(gym.Env):
             
             # Tính tốc độ dữ liệu (Data Rate) và chuyển sang Mbps
             rate_bps = data_rate(gamma_F, FSO_bandwidth)
-            rate_bps = min(rate_bps, 3)
+            rate_bps = min(rate_bps, 6)
             fso_rate_list.append(rate_bps) # Gbps
 
         self.h_fso = np.array(h_fso_list)
