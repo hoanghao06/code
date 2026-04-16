@@ -12,11 +12,12 @@ car_force = 5  # gia tốc tối đa của xe (m/s^2)
 # target_rate = 4.0e2  # Mbs
 slot_time = 1  # s
 fso_power = 15  # dBm
+energy_ratio = 0.2 
 
 
 class MakeEnv(gym.Env):
     def __init__(self, set_num, car_speed, target_rate):
-        self.car_num = set_num
+        self.car_num = 5
         self.car_speed = car_speed
         # load
         self.cars_path = CarsPath()
@@ -26,8 +27,8 @@ class MakeEnv(gym.Env):
         # self.p_fso_max = fso_power * np.ones(shape=(self.car_num,))  # average power in dBm
         self.p_fso_max = fso_power
         self.target_rate = target_rate # R_E
-        self.alpha = 10.0  # Hệ số phạt (lớn)
-        self.beta = 1       # Trọng số rate (ưu tiên cao)
+        self.alpha = 5.0  # Hệ số phạt (lớn)
+        self.beta = 2       # Trọng số rate (ưu tiên cao)
         self.gamma = 0.01  # Trọng số energy (nhỏ hơn)
         self.P_th = 1
         self.hap_pos = np.array([0, 0, 20000]) 
@@ -185,14 +186,17 @@ class MakeEnv(gym.Env):
         inter_index, self.cars_pos_list, self.distance = self.cars_path.get_inter_distance(time=self.time,
                                                                                            point=self.uav_pos)
         z_uav = self.uav_pos[2]
-        self.P_solar = get_solar_power(z_uav)
+        self.P_solar = get_solar_power(z_uav) 
         # Tính năng lượng FSO nhận từ Backhaul (HAP -> IRS -> UAV)
         h_hap_irs, _, _, _ = get_fso(self.hap_pos, self.irs_pos)
         h_irs_uav, _, _, _ = get_fso_backhaul(self.uav_pos, self.irs_pos)
         h_total_fso = h_hap_irs * h_irs_uav
-        self.P_R = get_fso_harvested_power(h_total_fso)
-        self.P_total = self.P_solar + self.P_R
-
+        self.P_R = get_fso_harvested_power(h_total_fso) 
+        P_transmit_total = self.P_R * (1 - energy_ratio)     # 80% để phát
+        P_transmit_per_car = P_transmit_total / self.car_num # Chia đều cho các xe
+        # NĂNG LƯỢNG THỰC TẾ SẠC VÀO PIN 
+        self.P_battery = self.P_solar + (self.P_R * energy_ratio)
+        self.P_total = self.P_solar + P_transmit_per_car
         h_fso_list = []
         gamma_F_list = []
         fso_rate_list = []
@@ -206,7 +210,7 @@ class MakeEnv(gym.Env):
             # Gọi hàm tính kênh FSO từ UAV xuống Vehicle
             h_total, hc, ha, hs = get_fso_access(self.uav_pos, car_pos_3d)
             h_fso_list.append(h_total)
-            gamma_F = get_snr(h_total, self.P_total, self.uav_pos)
+            gamma_F = get_snr(h_total, P_transmit_per_car, self.uav_pos)
             gamma_F_list.append(gamma_F)
             
             # Tính tốc độ dữ liệu (Data Rate) và chuyển sang Mbps
@@ -228,7 +232,7 @@ class MakeEnv(gym.Env):
         # Chuẩn hóa vận tốc
         vel_norm = (self.uav_velocity_xyz / self.uav_velocity_edge[1] + 1) / 2
         # Chuẩn hóa năng lượng (để đưa vào mạng neural)
-        energy_norm = np.array(self.P_total / self.P_th)
+        energy_norm = np.array(self.P_battery)
 
         # Ghép lại thành vector state
         state = np.clip(np.r_[vel_norm, energy_norm, dist_noisy], 0, 1)
