@@ -32,6 +32,8 @@ T_thermal = 298
 FSO_bandwidth = 1 # GHz             
 Delta_f = FSO_bandwidth*1e9 / 2 # Efficient BW
 Delta_lamda = (FSO_bandwidth*1e9 * (lamda ** 2)) / c_speed
+number_car = 5                 # Số lượng xe dưới mặt đất
+energy_ratio = 0.2             # Tỷ lệ năng lượng: 20% sạc vào pin, 80% dùng để phát tín hiệu
 # =====================================================================
 # THAM SỐ THU HOẠCH NĂNG LƯỢNG
 # =====================================================================
@@ -402,7 +404,7 @@ def get_fso_harvested_power(h_total):
     """
     # Công thức: P_R = 1.5 * V_t * (eta * h_total * R_xi * A * sqrt(P_s) * B)^2 / I_0
     core_term = eta_eo * h_total * R_xi * a_rx * np.sqrt(P_s) * B_bias
-    p_fso = (1.5 * V_t * (core_term ** 2)) / I_0
+    p_fso = (0.75 * V_t * (core_term ** 2)) / I_0
     return p_fso
 
 # =====================================================================
@@ -416,8 +418,7 @@ def total_harvested_energy(hap_pos, irs_pos, uav_pos, duration=300):
     """
     z_uav = uav_pos[-1]
     
-    # Tính năng lượng mặt trời (chia cho N xe)
-    P_solar = get_solar_power(z_uav) / 5
+    P_solar = get_solar_power(z_uav) 
     
     # Tính kênh FSO và năng lượng FSO
     if z_uav >= H_cloud_max:
@@ -436,19 +437,21 @@ def total_harvested_energy(hap_pos, irs_pos, uav_pos, duration=300):
         h_irs_uav, _, _, _ = get_fso_backhaul(uav_pos, irs_pos)
         h_total_fso = h_hap_irs * h_irs_uav
         
-    P_fso = get_fso_harvested_power(h_total_fso) / 5 # chia cho N xe
-    
-    # Tổng công suất (W)
+    P_fso = get_fso_harvested_power(h_total_fso) 
     P_total = P_solar + P_fso
+
+    P_battery_fso = P_fso * energy_ratio               # 20% của P_fso sạc vào pin
+    P_transmit_total = P_fso * (1 - energy_ratio)      # 80% của P_fso để phát tín hiệu
+    P_transmit_per_car = P_transmit_total / number_car # Chia đều cho số xe
     
     # Tổng năng lượng (Joules = Watts * seconds)
     E_total = P_total * duration
     
-    return E_total, P_solar, P_fso, P_total
+    return E_total, P_solar, P_fso, P_total, P_battery_fso, P_transmit_per_car
 # -------------------
 # Total channel UAV-Vehices and SNR 
 # -------------------
-def get_snr(h_total, P_fso, uav_pos):
+def get_snr(h_total, P_transmit_per_car, uav_pos):
     H_UAV = uav_pos[-1]
     fso_visibility = (1002 / (CLWC * N_c) ** 0.6473) / 1000
     sigma2_FSO = 1e-17
@@ -470,7 +473,7 @@ def get_snr(h_total, P_fso, uav_pos):
     shot_noise_term = 2 * q_charge * R_xi * P_b
     thermal_noise_term = (4 * k_B * T_thermal / R_L) * Delta_f
     sigma_N_square = shot_noise_term + thermal_noise_term
-    gamma_F = (P_fso * R_acc * h_total)**2 / ((sigma2_FSO + sigma_N_square) * FSO_bandwidth)   
+    gamma_F = (P_transmit_per_car * R_acc * h_total)**2 / ((sigma2_FSO + sigma_N_square) * FSO_bandwidth)   
     return gamma_F
 
 # =====================================================================
