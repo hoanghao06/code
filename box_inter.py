@@ -48,7 +48,7 @@ class Objects:
 
 if __name__ == "__main__":
     # path = './data/speed_10_force_50/objects_data_Train10th.csv'
-    path = r'env/data/data_diahinh/mountain_1.csv'
+    path = r'C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\env\data\data_diahinh\rural_1.csv'
     data = pd.read_csv(path, index_col=0)
     print(data)
     # point1 = data.values
