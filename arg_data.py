@@ -26,7 +26,7 @@ class CarsPath:
         self.cars_num = num
         traces_name = np.random.choice(trace_indices, replace=False)
         cars_name = np.random.choice(car_indices, size=(self.cars_num,), replace=False)
-        pre_path = r"C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\env\data\data_xechay" + \
+        pre_path = r"C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\env\data\data_xechay\rural_1" + \
                    r"\trans_data_Train" + str(traces_name) + "th_" + str(speed) + "ms_User"
         self.cars_pos = []
         for i in cars_name:
@@ -38,7 +38,7 @@ class CarsPath:
             self.cars_pos.append(data)
 
         obj_path = r"C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\env\data\data_diahinh" + \
-                   r"\mountain_1.csv"
+                   r"\rural_1.csv"
         self.obj_pos = pd.read_csv(obj_path, index_col=0).values
         # 坐标变换
         self.obj_pos[:, 0:2] -= 500.
