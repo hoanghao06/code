@@ -3,7 +3,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 from arg_data import CarsPath
-from channel import get_fso_access, data_rate, get_solar_power, get_fso, get_fso_backhaul, get_fso_harvested_power, get_snr
+from channel import get_fso_access, data_rate, get_solar_power, get_fso, get_fso_backhaul, get_fso_harvested_power, get_snr, irs_gain, H_cloud_max, H_cloud_min
 from store_file import Buffer
 
 # car_speed = 15  # m/s
@@ -17,7 +17,7 @@ energy_ratio = 0.2
 
 class MakeEnv(gym.Env):
     def __init__(self, set_num, car_speed, target_rate):
-        self.car_num = 5
+        self.car_num = 3
         self.car_speed = car_speed
         # load
         self.cars_path = CarsPath()
@@ -27,7 +27,7 @@ class MakeEnv(gym.Env):
         # self.p_fso_max = fso_power * np.ones(shape=(self.car_num,))  # average power in dBm
         self.p_fso_max = fso_power
         self.target_rate = target_rate # R_E
-        self.alpha = 10.0  # Hệ số phạt (lớn)
+        self.alpha = 10  # Hệ số phạt (lớn)
         self.beta = 5       # Trọng số rate (ưu tiên cao)
         self.gamma = 0.01  # Trọng số energy (nhỏ hơn)
         self.hap_pos = np.array([0, 0, 20000]) 
@@ -186,16 +186,30 @@ class MakeEnv(gym.Env):
                                                                                            point=self.uav_pos)
         z_uav = self.uav_pos[2]
         self.P_solar = get_solar_power(z_uav) 
-        # Tính năng lượng FSO nhận từ Backhaul (HAP -> IRS -> UAV)
-        h_hap_irs, _, _, _ = get_fso(self.hap_pos, self.irs_pos)
-        h_irs_uav, _, _, _ = get_fso_backhaul(self.uav_pos, self.irs_pos)
-        h_total_fso = h_hap_irs * h_irs_uav
-        self.P_R = get_fso_harvested_power(h_total_fso) 
+        # Tính năng lượng FSO nhận từ Backhaul theo 3 kịch bản mây
+        if z_uav >= H_cloud_max:
+            # 1. UAV bay trên mây: Nhận trực tiếp từ HAP, không có IRS khuếch đại
+            h_total_fso, _, _, _ = get_fso(self.hap_pos, self.uav_pos)
+            self.P_R = get_fso_harvested_power(h_total_fso, gain_factor=1)
+            
+        elif H_cloud_min <= z_uav < H_cloud_max:
+            # 2. UAV bay trong mây: Nhận qua IRS, có khuếch đại
+            h_hap_irs, _, _, _ = get_fso(self.hap_pos, self.irs_pos)
+            h_irs_uav, _, _, _ = get_fso_backhaul(self.uav_pos, self.irs_pos)
+            h_total_fso = h_hap_irs * h_irs_uav
+            self.P_R = get_fso_harvested_power(h_total_fso, gain_factor=irs_gain)
+            
+        else:
+            # 3. UAV bay dưới mây: Nhận qua IRS, có khuếch đại
+            h_hap_irs, _, _, _ = get_fso(self.hap_pos, self.irs_pos)
+            h_irs_uav, _, _, _ = get_fso_backhaul(self.uav_pos, self.irs_pos)
+            h_total_fso = h_hap_irs * h_irs_uav
+            self.P_R = get_fso_harvested_power(h_total_fso, gain_factor=irs_gain) 
         P_transmit_total = self.P_R * (1 - energy_ratio)     # 80% để phát
         P_transmit_per_car = P_transmit_total / self.car_num # Chia đều cho các xe
         # NĂNG LƯỢNG THỰC TẾ SẠC VÀO PIN 
         self.P_battery = self.P_solar + (self.P_R * energy_ratio)
-        self.P_total = self.P_solar + self.P_R
+
         h_fso_list = []
         gamma_F_list = []
         fso_rate_list = []
@@ -214,7 +228,7 @@ class MakeEnv(gym.Env):
             
             # Tính tốc độ dữ liệu (Data Rate) và chuyển sang Mbps
             rate_bps = data_rate(gamma_F, FSO_bandwidth)
-            rate_bps = min(rate_bps, 6)
+            rate_bps = min(rate_bps, 0.1)
             fso_rate_list.append(rate_bps) # Gbps
 
         self.h_fso = np.array(h_fso_list)
@@ -231,7 +245,8 @@ class MakeEnv(gym.Env):
         # Chuẩn hóa vận tốc
         vel_norm = (self.uav_velocity_xyz / self.uav_velocity_edge[1] + 1) / 2
         # Chuẩn hóa năng lượng (để đưa vào mạng neural)
-        energy_norm = np.array(self.P_battery)
+        max_energy_expected = 500.0 
+        energy_norm = np.array([self.P_battery / max_energy_expected])
 
         # Ghép lại thành vector state
         state = np.clip(np.r_[vel_norm, energy_norm, dist_noisy], 0, 1)
@@ -264,6 +279,7 @@ class MakeEnv(gym.Env):
         reward = np.mean(reward_array)
         
         return float(reward)
+
 
     def store(self):
         uav = [self.uav_pos, self.uav_velocity_xyz, self.uav_acc_xyz]
