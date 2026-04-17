@@ -19,8 +19,8 @@ r_cloud = 3.33 # Bán kính trung bình giọt mây Stratus (μm)
 rho_water = 1.0 # Mật độ nước (g/cm3)
 N_c = (CLWC / ((4/3) * np.pi * (r_cloud**3) * rho_water * 1e-6)) 
 # Tọa độ lớp mây
-H_cloud_min = 2000 # [m]
-H_cloud_max = 4000 # [m]
+H_cloud_min = 500 # [m]
+H_cloud_max = 1000 # [m]
 # --- Tham số hệ thống ---
 c_speed = 3e8                  # Tốc độ ánh sáng (m/s)
 q_charge = 1.6e-19             # Điện tích electron (C)
@@ -496,9 +496,9 @@ def data_rate(gamma_F, bandwidth_ghz):
 #     car_pos = np.array([10, 10, 2])
 
 #     uav_cases = {
-#         "1. UAV TRÊN MÂY (z = 5000m)": np.array([400, 100, 5000]),
-#         "2. UAV TRONG MÂY (z = 3000m)": np.array([1400, 100, 3000]),
-#         "3. UAV DƯỚI MÂY (z = 1000m)": np.array([400, 100, 500])
+#         "1. UAV TRÊN MÂY (z = 2000m)": np.array([400, 100, 2000]),
+#         "2. UAV TRONG MÂY (z = 700m)": np.array([1400, 100, 700]),
+#         "3. UAV DƯỚI MÂY (z = 300m)": np.array([400, 100, 300])
 #     }
     
 #     for case_name, uav_pos in uav_cases.items():
