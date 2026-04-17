@@ -32,7 +32,7 @@ T_thermal = 298
 FSO_bandwidth = 1 # GHz             
 Delta_f = FSO_bandwidth*1e9 / 2 # Efficient BW
 Delta_lamda = (FSO_bandwidth*1e9 * (lamda ** 2)) / c_speed
-number_car = 5                 # Số lượng xe dưới mặt đất
+number_car = 3                 # Số lượng xe dưới mặt đất
 energy_ratio = 0.2             # Tỷ lệ năng lượng: 20% sạc vào pin, 80% dùng để phát tín hiệu
 # =====================================================================
 # THAM SỐ THU HOẠCH NĂNG LƯỢNG
@@ -53,8 +53,10 @@ V_t = 0.025           # Điện áp nhiệt (Thermal voltage ~ 25mV)
 I_0 = 1e-9           # Dòng bão hòa tối của P-D (Dark saturation current, Ampere)
 eta_eo = 0.9          # Hiệu suất chuyển đổi quang-điện
 R_xi = 0.6            # Độ nhạy P-D (A/W)
-P_s = 1               # Công suất phát FSO từ HAP (Watts)
+P_s = (10 ** (25 / 10)) / 1000               # Công suất phát FSO từ HAP (Watts)
 B_bias = 0.04         # Dòng DC Bias (Ampere)
+irs_gain_dB = 3
+irs_gain = 10 ** (irs_gain_dB / 10) 
 
 def transmittance(file_path, environment='Nông thôn (T)'):
     df = pd.read_excel(file_path)
@@ -398,13 +400,13 @@ def get_solar_power(z):
         alpha_d = np.exp(-beta_a * (H_cloud_min - z))
         return eta_p * A_solar * G_r * alpha_a * alpha_c * alpha_d
 
-def get_fso_harvested_power(h_total):
+def get_fso_harvested_power(h_total, gain_factor=1):
     """
     Tính công suất thu hoạch được từ sóng mang FSO 
     """
     # Công thức: P_R = 1.5 * V_t * (eta * h_total * R_xi * A * sqrt(P_s) * B)^2 / I_0
     core_term = eta_eo * h_total * R_xi * a_rx * np.sqrt(P_s) * B_bias
-    p_fso = (0.75 * V_t * (core_term ** 2)) / I_0
+    p_fso = ((0.75 * V_t * (core_term ** 2)) / I_0) * gain_factor
     return p_fso
 
 # =====================================================================
@@ -424,20 +426,22 @@ def total_harvested_energy(hap_pos, irs_pos, uav_pos, duration=300):
     if z_uav >= H_cloud_max:
         # 1. UAV TRÊN MÂY: Nhận trực tiếp FSO từ HAP (HAP - UAV)
         h_total_fso, _, _, _ = get_fso(hap_pos, uav_pos)
+        P_fso = get_fso_harvested_power(h_total_fso, gain_factor=1)
         
     elif H_cloud_min <= z_uav < H_cloud_max:
         # 2. UAV TRONG MÂY: Nhận FSO qua IRS (HAP - IRS - UAV)
         h_hap_irs, _, _, _ = get_fso(hap_pos, irs_pos)
         h_irs_uav, _, _, _ = get_fso_backhaul(uav_pos, irs_pos)
         h_total_fso = h_hap_irs * h_irs_uav
+        P_fso = get_fso_harvested_power(h_total_fso, gain_factor=irs_gain)
         
     else:
         # 3. UAV DƯỚI MÂY: Nhận FSO qua IRS (HAP - IRS - UAV)
         h_hap_irs, _, _, _ = get_fso(hap_pos, irs_pos)
         h_irs_uav, _, _, _ = get_fso_backhaul(uav_pos, irs_pos)
         h_total_fso = h_hap_irs * h_irs_uav
-        
-    P_fso = get_fso_harvested_power(h_total_fso) 
+        P_fso = get_fso_harvested_power(h_total_fso, gain_factor=irs_gain)
+
     P_battery_fso = P_fso * energy_ratio               # 20% của P_fso sạc vào pin
     P_transmit_total = P_fso * (1 - energy_ratio)      # 80% của P_fso để phát tín hiệu
     P_transmit_per_car = P_transmit_total / number_car # Chia đều cho số xe
@@ -492,9 +496,9 @@ def data_rate(gamma_F, bandwidth_ghz):
 #     car_pos = np.array([10, 10, 2])
 
 #     uav_cases = {
-#         "1. UAV TRÊN MÂY (z = 5000m)": np.array([100, 100, 5000]),
-#         "2. UAV TRONG MÂY (z = 3000m)": np.array([100, 100, 3000]),
-#         "3. UAV DƯỚI MÂY (z = 1000m)": np.array([100, 100, 1000])
+#         "1. UAV TRÊN MÂY (z = 5000m)": np.array([400, 100, 5000]),
+#         "2. UAV TRONG MÂY (z = 3000m)": np.array([1400, 100, 3000]),
+#         "3. UAV DƯỚI MÂY (z = 1000m)": np.array([400, 100, 500])
 #     }
     
 #     for case_name, uav_pos in uav_cases.items():
@@ -503,7 +507,9 @@ def data_rate(gamma_F, bandwidth_ghz):
 #         print(f"{'='*50}")
 
 #         E_total, P_solar, P_fso, P_battery_fso, P_transmit_per_car = total_harvested_energy(hap_pos, irs_pos, uav_pos)
- 
+#         P_fso_dBm = 10 * np.log10(max(P_fso * 1000, 1e-20))
+#         # print(">> NĂNG LƯỢNG QUANG THU ĐƯỢC TẠI UAV:")
+#         # print(f"   - FSO thu hoạch (P_fso): {P_fso:.10e} W ({P_fso_dBm:.2f} dBm)")
 #         h_total_access, hc_acc, ha_acc, hs_acc = get_fso_access(uav_pos, car_pos)
  
 #         gamma_F = get_snr(h_total_access, P_transmit_per_car, uav_pos)
