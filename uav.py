@@ -36,11 +36,14 @@ class MakeEnv(gym.Env):
         self.target_rate = target_rate
         self.delta_rate = target_rate * 1.0  # Mbps
         # [-500, -500, 0] -> [500, 500, 100]
-        self.uav_acc_edge = np.array([0, 5], dtype=np.float32)  # Giới hạn độ lớn gia tốc của UAV m/s^2
+        self.uav_acc_edge = np.array([0, 10], dtype=np.float32)  # Giới hạn độ lớn gia tốc của UAV m/s^2
 
-        self.uav_velocity_edge = np.array([0, 10], dtype=np.float32)  # Giới hạn tốc độ bay tối đa m/s
+        self.uav_velocity_edge = np.array([0, 30], dtype=np.float32)  # Giới hạn tốc độ bay tối đa m/s
         
         self.env_edge = np.array([[-500, 500], [-500, 500], [0, 5000]], dtype=np.float32)  # Không gian hoạt động của hệ thống m
+        self.max_env_distance = np.sqrt((self.env_edge[0][1] - self.env_edge[0][0])**2 + 
+                                        (self.env_edge[1][1] - self.env_edge[1][0])**2 + 
+                                        (self.env_edge[2][1] - self.env_edge[2][0])**2)
         # [0, 1], advice: 2 ** n
         observation_spaces = gym.spaces.Box(low=np.zeros(shape=(self.car_num + 4,), dtype=np.float32),
                                             high=np.ones(shape=(self.car_num + 4,), dtype=np.float32))
@@ -58,7 +61,7 @@ class MakeEnv(gym.Env):
         self.obj_point = self.cars_path.obj_pos
         # [-200, 200], uav-pos in m
         # self.uav_pos = np.mean(temp_car_init_pos, axis=0) + np.array([0, 0., uav_height])
-        self.uav_pos = np.array([0.0, 0.0, 2000.0], dtype=np.float32)
+        self.uav_pos = np.array([0.0, 0.0, 700.0], dtype=np.float32)
         self.uav_acc_xyz = np.zeros(shape=(3,), dtype=np.float32) # khởi tạo gia tốc
         self.pre_acc_xyz = self.uav_acc_xyz
         # velocity [0, pi]
@@ -228,7 +231,7 @@ class MakeEnv(gym.Env):
             
             # Tính tốc độ dữ liệu (Data Rate) và chuyển sang Mbps
             rate_bps = data_rate(gamma_F, FSO_bandwidth)
-            rate_bps = min(rate_bps, 0.1)
+            rate_bps = min(rate_bps, 4)
             fso_rate_list.append(rate_bps) # Gbps
 
         self.h_fso = np.array(h_fso_list)
@@ -241,7 +244,10 @@ class MakeEnv(gym.Env):
         
         # 3. TẠO TRẠNG THÁI (STATE)
         # Chuẩn hóa khoảng cách có nhiễu Gaussian
-        dist_noisy = (self.distance + np.random.normal(loc=0, scale=2, size=(self.car_num,))) * (2 ** -10)
+        # Xác định khoảng cách đường chéo lớn nhất trong môi trường hoạt độn
+
+        # Chia cho max_distance để đảm bảo dist_noisy luôn nằm trong [0, 1] trước khi vào hàm clip
+        dist_noisy = (self.distance + np.random.normal(loc=0, scale=2, size=(self.car_num,))) / self.max_env_distance
         # Chuẩn hóa vận tốc
         vel_norm = (self.uav_velocity_xyz / self.uav_velocity_edge[1] + 1) / 2
         # Chuẩn hóa năng lượng (để đưa vào mạng neural)
