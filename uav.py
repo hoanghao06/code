@@ -40,7 +40,7 @@ class MakeEnv(gym.Env):
 
         self.uav_velocity_edge = np.array([0, 30], dtype=np.float32)  # Giới hạn tốc độ bay tối đa m/s
         
-        self.env_edge = np.array([[-500, 500], [-500, 500], [0, 5000]], dtype=np.float32)  # Không gian hoạt động của hệ thống m
+        self.env_edge = np.array([[-500, 500], [-500, 500], [0, 3000]], dtype=np.float32)  # Không gian hoạt động của hệ thống m
         self.max_env_distance = np.sqrt((self.env_edge[0][1] - self.env_edge[0][0])**2 + 
                                         (self.env_edge[1][1] - self.env_edge[1][0])**2 + 
                                         (self.env_edge[2][1] - self.env_edge[2][0])**2)
@@ -61,7 +61,7 @@ class MakeEnv(gym.Env):
         self.obj_point = self.cars_path.obj_pos
         # [-200, 200], uav-pos in m
         # self.uav_pos = np.mean(temp_car_init_pos, axis=0) + np.array([0, 0., uav_height])
-        self.uav_pos = np.array([0.0, 0.0, 700.0], dtype=np.float32)
+        self.uav_pos = np.array([0.0, 0.0, 500.0], dtype=np.float32)
         self.uav_acc_xyz = np.zeros(shape=(3,), dtype=np.float32) # khởi tạo gia tốc
         self.pre_acc_xyz = self.uav_acc_xyz
         # velocity [0, pi]
