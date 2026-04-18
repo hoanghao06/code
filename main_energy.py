@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 # ================== LOAD DATA ==================
 data_energy = np.load(
-    r'C:\Users\AVSTC\Desktop\2026.Globecom\output_35_Gbps\speed_10\0\flydata\energy_3.5.npy',
+    r'C:\Users\AVSTC\Desktop\2026.Globecom\output\speed_10\0\flydata\energy_3.5.npy',
     allow_pickle=True
 ).item()
 

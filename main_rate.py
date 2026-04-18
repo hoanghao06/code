@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 # ================== LOAD DATA ==================
 data = np.load(
-    r'C:\Users\AVSTC\Desktop\2026.Globecom\output_35_Gbps\speed_10\0\flydata\rate_3.5.npy',
+    r'C:\Users\AVSTC\Desktop\2026.Globecom\output\speed_10\0\flydata\rate_3.6.npy',
     allow_pickle=True
 ).item()
 
@@ -22,7 +22,7 @@ for i in range(fso_rate.shape[1]):
     plt.plot(
         x,
         fso_rate[:, i],
-        linestyle='--',
+        linestyle='-',
         linewidth=1,
         alpha=0.6,
         label=f'vehicle {i+1}'
