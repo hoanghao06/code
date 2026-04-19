@@ -36,11 +36,11 @@ def my_args(params):
 env_steps = 300
 
 arg_dict_0 = {
-    "max_train_episodes": 3200,
-    "evaluate_episode_freq": 32,
-    "batch_size": env_steps * 4,
-    "mini_batch_size": env_steps // 4,
-    "hidden_width": 128,
+    "max_train_episodes": 3000,
+    "evaluate_episode_freq": 15,
+    "batch_size": env_steps * 3,
+    "mini_batch_size": env_steps // 3,
+    "hidden_width": 256,
     "lr_a": 2e-4,
     "lr_c": 4e-4,
     "gamma": 0.99,
@@ -52,7 +52,7 @@ arg_dict_0 = {
     "use_lr_decay": True,
     "use_grad_clip": True,
     "set_adam_eps": True,
-    "use_tanh": False
+    "use_tanh": True
 }
 
 arg_dict_1 = {
@@ -77,15 +77,35 @@ arg_dict_1 = {
 
 arg_dict_2 = {
     "max_train_episodes": 3000,
-    "evaluate_episode_freq": 15,
+    "evaluate_episode_freq": 10,
     "batch_size": env_steps * 3,
     "mini_batch_size": env_steps // 3,
     "hidden_width": 128,
     "lr_a": 2e-4,
     "lr_c": 4e-4,
-    "gamma": 0.99,
-    "lamda": 0.95,
-    "epsilon": 0.25,
+    "gamma": 0.98,
+    "lamda": 0.98,
+    "epsilon": 0.2,
+    "use_adv_norm": True,
+    "use_state_norm": True,
+    "entropy_coef": 0.005,
+    "use_lr_decay": True,
+    "use_grad_clip": True,
+    "set_adam_eps": True,
+    "use_tanh": True
+}
+
+arg_dict_3 = {
+    "max_train_episodes": 3000,
+    "evaluate_episode_freq": 10,
+    "batch_size": env_steps * 3,
+    "mini_batch_size": env_steps // 3,
+    "hidden_width": 128,
+    "lr_a": 2e-4,
+    "lr_c": 4e-4,
+    "gamma": 0.98,
+    "lamda": 0.98,
+    "epsilon": 0.15,
     "use_adv_norm": True,
     "use_state_norm": True,
     "entropy_coef": 0.005,
@@ -96,4 +116,11 @@ arg_dict_2 = {
 }
 
 
-args_list = [my_args(arg_dict_1)]
+# args_list = [my_args(arg_dict_2)]
+
+temp_args_list = [ arg_dict_3]
+
+args_list = []
+
+for item in temp_args_list:
+    args_list.append(my_args(item))
