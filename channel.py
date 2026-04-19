@@ -55,7 +55,7 @@ eta_eo = 0.9          # Hiệu suất chuyển đổi quang-điện
 R_xi = 0.6            # Độ nhạy P-D (A/W)
 P_s = (10 ** (25 / 10)) / 1000               # Công suất phát FSO từ HAP (Watts)
 B_bias = 0.04         # Dòng DC Bias (Ampere)
-irs_gain_dB = 3
+irs_gain_dB = 2
 irs_gain = 10 ** (irs_gain_dB / 10) 
 
 def transmittance(file_path, environment='Nông thôn (T)'):
@@ -68,7 +68,7 @@ def transmittance(file_path, environment='Nông thôn (T)'):
     values = df[environment].values
     return LinearNDInterpolator(points, values)
 
-csv_file_path = r"C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\env\data\data_khihau\Tropical.csv.xlsx"
+csv_file_path = r"C:\Users\AVSTC\Desktop\2026.Globecom\data_khihau\Tropical.csv.xlsx"
 env_type = 'Nông thôn (T)'
 t_interpolator = transmittance(csv_file_path, env_type)
 
