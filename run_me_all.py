@@ -1,7 +1,9 @@
 from kernel import main
 from train_args import args_list
 
-target_rate = 3.5
+target_rate = 3
+
+
 
 def func(args, path_num, speed):
     return main(
@@ -14,6 +16,8 @@ def func(args, path_num, speed):
 
 if __name__ == "__main__":
     import os, shutil
+
+
 
     if os.path.exists('./output'):
         shutil.rmtree('./output')
