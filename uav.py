@@ -35,12 +35,11 @@ class MakeEnv(gym.Env):
         # edge constraint
         self.target_rate = target_rate
         self.delta_rate = target_rate * 1.0  # Mbps
-        # [-500, -500, 0] -> [500, 500, 100]
         self.uav_acc_edge = np.array([0, 10], dtype=np.float32)  # Giới hạn độ lớn gia tốc của UAV m/s^2
 
-        self.uav_velocity_edge = np.array([0, 30], dtype=np.float32)  # Giới hạn tốc độ bay tối đa m/s
+        self.uav_velocity_edge = np.array([0, 20], dtype=np.float32)  # Giới hạn tốc độ bay tối đa m/s
         
-        self.env_edge = np.array([[-500, 500], [-500, 500], [0, 3000]], dtype=np.float32)  # Không gian hoạt động của hệ thống m
+        self.env_edge = np.array([[0, 600], [0, 600], [0, 3000]], dtype=np.float32)  # Không gian hoạt động của hệ thống m
         self.max_env_distance = np.sqrt((self.env_edge[0][1] - self.env_edge[0][0])**2 + 
                                         (self.env_edge[1][1] - self.env_edge[1][0])**2 + 
                                         (self.env_edge[2][1] - self.env_edge[2][0])**2)
@@ -231,7 +230,7 @@ class MakeEnv(gym.Env):
             
             # Tính tốc độ dữ liệu (Data Rate) và chuyển sang Mbps
             rate_bps = data_rate(gamma_F, FSO_bandwidth)
-            rate_bps = min(rate_bps, 4)
+            # rate_bps = min(rate_bps, 4)
             fso_rate_list.append(rate_bps) # Gbps
 
         self.h_fso = np.array(h_fso_list)
@@ -251,7 +250,7 @@ class MakeEnv(gym.Env):
         # Chuẩn hóa vận tốc
         vel_norm = (self.uav_velocity_xyz / self.uav_velocity_edge[1] + 1) / 2
         # Chuẩn hóa năng lượng (để đưa vào mạng neural)
-        max_energy_expected = 500.0 
+        max_energy_expected = 1000.0 
         energy_norm = np.array([self.P_battery / max_energy_expected])
 
         # Ghép lại thành vector state
@@ -279,8 +278,9 @@ class MakeEnv(gym.Env):
         reward_array[penalty_mask] = -self.alpha * (R_min - R_t[penalty_mask])
         
         # Tính reward cho trường hợp R_t >= R_min
-        reward_array[bonus_mask] = self.beta * (R_t[bonus_mask] - R_min) + self.gamma * E_t
-        
+        # reward_array[bonus_mask] = self.beta * (R_t[bonus_mask] - R_min) + self.gamma * E_t
+        reward_array[bonus_mask] = self.beta + self.gamma * E_t
+
         # Lấy giá trị trung bình làm phần thưởng tổng thể cho môi trường
         reward = np.mean(reward_array)
         
