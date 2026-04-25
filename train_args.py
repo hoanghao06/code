@@ -115,6 +115,26 @@ arg_dict_3 = {
     "use_tanh": True
 }
 
+arg_dict_3 = {
+    "max_train_episodes": 3000,
+    "evaluate_episode_freq": 10,
+    "batch_size": env_steps * 3,
+    "mini_batch_size": env_steps // 3,
+    "hidden_width": 128,
+    "lr_a": 2e-4,
+    "lr_c": 4e-4,
+    "gamma": 0.98,
+    "lamda": 0.98,
+    "epsilon": 0.15,
+    "use_adv_norm": True,
+    "use_state_norm": True,
+    "entropy_coef": 0.004,
+    "use_lr_decay": True,
+    "use_grad_clip": True,
+    "set_adam_eps": True,
+    "use_tanh": True
+}
+
 
 # args_list = [my_args(arg_dict_2)]
 
