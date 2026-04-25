@@ -33,7 +33,6 @@ FSO_bandwidth = 1 # GHz
 Delta_f = FSO_bandwidth*1e9 / 2 # Efficient BW
 Delta_lamda = (FSO_bandwidth*1e9 * (lamda ** 2)) / c_speed
 number_car = 3                 # Số lượng xe dưới mặt đất
-energy_ratio = 0.2             # Tỷ lệ năng lượng: 20% sạc vào pin, 80% dùng để phát tín hiệu
 # =====================================================================
 # THAM SỐ THU HOẠCH NĂNG LƯỢNG
 # =====================================================================
@@ -42,10 +41,10 @@ energy_ratio = 0.2             # Tỷ lệ năng lượng: 20% sạc vào pin, 8
 eta_p = 0.9           # Hiệu suất chuyển đổi quang điện 
 A_solar = 0.5         # Diện tích tấm pin mặt trời UAV (m2)
 G_r = 1361            # Bức xạ mặt trời trung bình (W/m2)
-A_0_solar = 0.8978    # Giá trị truyền qua khí quyển tối đa (Đổi tên để không trùng với A_0 của Pointing error)
+A_0_solar = 0.8978    # Giá trị truyền qua khí quyển tối đa 
 B_0_solar = 0.2804    # Hệ số dập tắt của không khí (m^-1)
 delta = 8000          # Chiều cao thang đo Trái Đất (m)
-beta_c = 0.01         # Hệ số suy hao năng lượng mặt trời qua mây (Ví dụ: 0.001 - 0.02)
+beta_c = 0.01         # Hệ số suy hao năng lượng mặt trời qua mây (0.001 - 0.02)
 beta_a = 0.5
 
 # --- Tham số Năng lượng FSO ---
@@ -54,7 +53,7 @@ I_0 = 1e-9           # Dòng bão hòa tối của P-D (Dark saturation current,
 eta_eo = 0.9          # Hiệu suất chuyển đổi quang-điện
 R_xi = 0.6            # Độ nhạy P-D (A/W)
 P_s = (10 ** (25 / 10)) / 1000               # Công suất phát FSO từ HAP (Watts)
-B_bias = 0.04         # Dòng DC Bias (Ampere)
+B_bias = 0.04         # Dòng DC Bias (A)
 irs_gain_dB = 2
 irs_gain = 10 ** (irs_gain_dB / 10) 
 
@@ -68,7 +67,7 @@ def transmittance(file_path, environment='Nông thôn (T)'):
     values = df[environment].values
     return LinearNDInterpolator(points, values)
 
-csv_file_path = r"C:\Users\AVSTC\Desktop\2026.Globecom\data_khihau\Tropical.csv.xlsx"
+csv_file_path = r"C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\env\data\data_khihau\Tropical.csv.xlsx"
 env_type = 'Nông thôn (T)'
 t_interpolator = transmittance(csv_file_path, env_type)
 
@@ -413,7 +412,7 @@ def get_fso_harvested_power(h_total, gain_factor=1):
 # HÀM TỔNG HỢP: TÍNH TỔNG NĂNG LƯỢNG TRONG DURATION
 # =====================================================================
 
-def total_harvested_energy(hap_pos, irs_pos, uav_pos, duration=300):
+def total_harvested_energy(hap_pos, irs_pos, uav_pos, duration=300, energy_ratio=0.2):
     """
     Tính tổng năng lượng UAV thu hoạch được trong khoảng thời gian duration (Joules).
     Xét 3 trường hợp: Trên mây, Trong mây, Dưới mây.
@@ -488,44 +487,116 @@ def data_rate(gamma_F, bandwidth_ghz):
     
     return data_rate_bps
 
-# if __name__ == "__main__":
-#     print("=== ĐANG TEST KÊNH TRUYỀN VỚI 3 KỊCH BẢN MÂY ===")
+# =====================================================================
+# CLASS MÔ HÌNH NĂNG LƯỢNG TIÊU THỤ 
+# =====================================================================
+class UAVEnergyModel:
+    def __init__(self):
+        # --- CÁC THÔNG SỐ TỪ BẢNG I (TABLE I) ---
+        self.W = 100.45         # Trọng lượng UAV (N) (2.45 là trọng lượng tấm pin mặt trời dạng vải dệt)
+        self.rho = 1.225        # Mật độ không khí (kg/m^3)
+        self.R = 0.5            # Bán kính cánh quạt (m)
+        self.A = 0.79           # Diện tích đĩa cánh quạt (m^2)
+        self.U_tip = 200.0      # Tốc độ mũi cánh quạt (m/s)
+        self.s = 0.05           # Độ đặc của rotor (Rotor solidity)
+        self.d_0 = 0.3          # Hệ số cản thân máy bay (Fuselage drag ratio)
+        self.v_0 = 7.2          # Vận tốc cảm ứng trung bình khi bay lơ lửng (m/s)
+        self.delta = 0.012      # Hệ số cản biên dạng (Profile drag coefficient)
+        self.k = 0.1            # Hệ số hiệu chỉnh công suất cảm ứng
+        
+        # --- TÍNH TOÁN P_0 VÀ P_i ---
+        self.P_0 = (self.delta / 8) * self.rho * self.s * self.A * (self.U_tip ** 3)
+        self.P_i = (1 + self.k) * (self.W ** 1.5) / np.sqrt(2 * self.rho * self.A)
+        self.P_c = 50.0 # Công suất tiêu thụ cho mạch truyền thông (W)
 
-#     hap_pos = np.array([0, 0, 20000])
-#     irs_pos = np.array([0, 0, 80])
-#     car_pos = np.array([10, 10, 2])
+    def velocity_3d(self, v_x, v_y, v_z):
+        """Tính độ lớn vận tốc V từ các vector vận tốc."""
+        return np.sqrt(v_x**2 + v_y**2 + v_z**2)
 
-#     uav_cases = {
-#         "1. UAV TRÊN MÂY (z = 2000m)": np.array([400, 100, 2000]),
-#         "2. UAV TRONG MÂY (z = 700m)": np.array([1400, 100, 700]),
-#         "3. UAV DƯỚI MÂY (z = 300m)": np.array([400, 100, 300])
-#     }
+    def propulsion_power(self, V):
+        """Tính toán công suất đẩy P(V)"""
+        V = np.maximum(V, 0.0)
+        term1 = self.P_0 * (1 + (3 * V**2) / (self.U_tip**2))
+        inner_sqrt = np.sqrt(1 + (V**4) / (4 * self.v_0**4))
+        term2 = self.P_i * np.sqrt(inner_sqrt - (V**2) / (2 * self.v_0**2))
+        term3 = 0.5 * self.d_0 * self.rho * self.s * self.A * (V**3)
+        return term1 + term2 + term3
+
+    def total_energy(self, velocities, dt, include_communication=True):
+        """Tính tổng năng lượng tiêu thụ (Joule)"""
+        P_prop = self.propulsion_power(velocities)
+        E_prop = np.sum(P_prop) * dt
+        if include_communication:
+            E_comm = self.P_c * len(velocities) * dt
+            return E_prop + E_comm
+        return E_prop
+
+def uav_lifespan(uav_model, velocity, p_solar, p_battery_fso, e_b_wh=276.0):
+    """
+    Tính toán tuổi thọ của UAV dựa trên công suất tiêu thụ và thu hoạch.
     
-#     for case_name, uav_pos in uav_cases.items():
-#         print(f"\n{'='*50}")
-#         print(f"{case_name}")
-#         print(f"{'='*50}")
+    Tham số:
+    - uav_model: Thực thể của class UAVEnergyModel đã có trong code.
+    - velocity: Vận tốc hiện tại của UAV (m/s).
+    - p_solar: Công suất thu hoạch từ mặt trời (Watts).
+    - p_battery_fso: Công suất FSO thực tế nạp vào pin (20% của P_fso).
+    - e_b_wh: Năng lượng pin khả dụng (mặc định 276 Wh theo bài báo).
+    
+    Trả về:
+    - lifespan_seconds: Tuổi thọ UAV tính bằng giây.
+    """
+    # 1. Tính tổng công suất tiêu thụ Pc = P_propulsion + P_communication
+    # P_propulsion tính từ hàm propulsion_power trong code của bạn
+    p_propulsion = uav_model.propulsion_power(velocity)
+    p_c = p_propulsion + uav_model.P_c # [cite: 969, 970]
+    
+    # 2. Tính tổng công suất thu hoạch được nạp vào pin P_H
+    p_h = p_solar + p_battery_fso
+    
+    # 3. Kiểm tra trạng thái cân bằng năng lượng
+    if p_h >= p_c:
+        return float('inf')
+    
+    # 4. Tính Lifespan (Ls) theo công thức (34)
+    e_b_joules = e_b_wh * 3600 
+    lifespan_seconds = e_b_joules / (p_c - p_h) 
+    return lifespan_seconds, p_c, p_h
 
-#         E_total, P_solar, P_fso, P_battery_fso, P_transmit_per_car = total_harvested_energy(hap_pos, irs_pos, uav_pos)
-#         P_fso_dBm = 10 * np.log10(max(P_fso * 1000, 1e-20))
-#         # print(">> NĂNG LƯỢNG QUANG THU ĐƯỢC TẠI UAV:")
-#         # print(f"   - FSO thu hoạch (P_fso): {P_fso:.10e} W ({P_fso_dBm:.2f} dBm)")
-#         h_total_access, hc_acc, ha_acc, hs_acc = get_fso_access(uav_pos, car_pos)
- 
-#         gamma_F = get_snr(h_total_access, P_transmit_per_car, uav_pos)
-        
-#         # 4. Tính Data Rate
-#         rate = data_rate(gamma_F, FSO_bandwidth)
-        
-#         # 5. In kết quả kiểm tra
-#         print(">> THÔNG SỐ NĂNG LƯỢNG:")
-#         print(f"   - Năng lượng mặt trời (P_solar):        {P_solar:.4f} W")
-#         print(f"   - FSO thu hoạch (P_fso):                {P_fso:.10e} W")
-#         print(f"   - Sạc vào pin UAV (20% P_fso):          {P_battery_fso:.10e} W")
-#         print(f"   - Cấp phát cho 1 xe (P_transmit):       {P_transmit_per_car:.10e} W")
-#         print(f"   - Tổng năng lượng trong 300s (E_total): {E_total:.4f} J")
-        
-#         print("\n>> THÔNG SỐ TRUYỀN DẪN (UAV -> XE):")
-#         print(f"   - Hệ số kênh truyền (h_total_access):   {h_total_access:.6e}")
-#         print(f"   - SNR (gamma_F):                        {gamma_F:.6e}")
-#         print(f"   - Tốc độ truyền (Data Rate):            {rate:.6f} Gbps")
+# if __name__ == "__main__":
+#     print("=== ĐANG TEST KÊNH TRUYỀN VÀ TUỔI THỌ (LIFESPAN) UAV ===")
+
+#     uav_energy_model = UAVEnergyModel()
+
+#     v_uav = 5.0      # Giả định UAV bay với vận tốc 5 m/s
+#     eb_value = 276.0 # Wh
+#     energy_ratio = 0.2
+
+#     # 1. Đọc dữ liệu từ file energy_4.0.npy
+#     try:
+#         energy_data = np.load(r'C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\main_output\output_rural_10\speed_10\0\flydata\energy_3.npy', allow_pickle=True).item()
+#         P_solar_mean = np.mean(energy_data['solar energy'])
+#         P_fso_mean = np.mean(energy_data['fso energy'])
+#         P_battery_fso_mean = P_fso_mean * energy_ratio
+#     except Exception as e:
+#         print(f"Lỗi khi đọc file energy_4.0.npy: {e}")
+#         exit()
+
+#     # 2. Gọi HÀM DUY NHẤT để tính toán tất cả
+#     # Hàm giờ đây trả về 3 giá trị, ta gán vào 3 biến tương ứng
+#     ls_seconds, p_c, p_h = uav_lifespan(uav_energy_model, v_uav, P_solar_mean, P_battery_fso_mean, eb_value)
+
+#     # 3. In kết quả trực tiếp từ các biến đã được hàm trả về
+#     print(f"\n{'='*60}")
+#     print(">> THÔNG SỐ NĂNG LƯỢNG (POWER & ENERGY):")
+#     print(f"   - Tổng tiêu thụ:                  {p_c:.4f} W")
+#     print(f"   - Tổng thu hoạch:                 {p_h:.4f} W")
+#     print(f"      + solar:                       {P_solar_mean:.4f} W")
+#     print(f"      + fso:                         {P_battery_fso_mean:.4f} W")
+    
+#     if ls_seconds == float('inf'):
+#         print("   => TUỔI THỌ UAV (Lifespan L_s):         Vô hạn (Thu hoạch >= Tiêu thụ)")
+#     else:
+#         ls_hours = ls_seconds / 3600
+#         print(f"   => TUỔI THỌ UAV (Lifespan L_s):         {ls_hours:.2f} giờ ({ls_seconds:.2f} giây)")
+
+    
