@@ -1,0 +1,94 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from channel import total_harvested_energy, get_fso_access, get_snr, data_rate, FSO_bandwidth
+
+def main():
+    print("=== TRADE-OFF: CÔNG SUẤT & TỐC ĐỘ THEO ĐỘ CAO (ALPHA CỐ ĐỊNH) ===")
+
+    # Tham số mô phỏng
+    alt_min, alt_max, num_alts = 100, 2000, 20          # độ cao từ 100 đến 2000m, 20 điểm
+    altitudes = np.linspace(alt_min, alt_max, num_alts)
+    alphas = [0.2, 0.4, 0.6, 0.8]                      # các hệ số phân chia năng lượng
+    num_timeslots = 300
+
+    # Tọa độ cố định
+    hap_pos = np.array([500, 500, 20000])              # HAP
+    irs_pos = np.array([0, 0, 80])                    # IRS
+
+    # === TẢI QUỸ ĐẠO XE (từ file .npy) ===
+    try:
+        car_data = np.load(r'C:\Users\dohuy\Desktop\2026. Globecom\output_rural_10\speed_10\0\flydata\car_3.npy',
+                           allow_pickle=True).item()
+        car_trajectory = car_data['car_0']
+        print("[+] Đã tải quỹ đạo xe từ car_3.npy")
+    except Exception as e:
+        print(f"[!] Lỗi đọc file: {e}. Dùng quỹ đạo giả định (đứng yên tại gốc).")
+        car_trajectory = [np.array([0, 0, 0])] * num_timeslots
+
+    # Mảng lưu kết quả: power[alpha_index][alt_index], rate tương tự
+    power_results = np.zeros((len(alphas), len(altitudes)))
+    rate_results = np.zeros((len(alphas), len(altitudes)))
+
+    # === MÔ PHỎNG ===
+    print(f"Đang chạy mô phỏng với {len(altitudes)} độ cao, {len(alphas)} giá trị alpha...")
+    for i_alt, alt in enumerate(altitudes):
+        pos_above = np.array([0, 0, alt])            # UAV ở độ cao thay đổi
+        for i_alpha, alpha in enumerate(alphas):
+            total_power = 0.0
+            total_rate = 0.0
+            for t in range(num_timeslots):
+                car_pos = car_trajectory[min(t, len(car_trajectory)-1)]
+
+                # Tính năng lượng thu được (solar + battery)
+                _, p_sol, _, p_batt, p_tx = total_harvested_energy(
+                    hap_pos, irs_pos, pos_above, duration=1, energy_ratio=alpha
+                )
+                total_power += (p_sol + p_batt)
+
+                # Tính tốc độ dữ liệu FSO
+                h_acc, _, _, _ = get_fso_access(pos_above, car_pos)
+                gamma = get_snr(h_acc, p_tx, pos_above)
+                total_rate += data_rate(gamma, FSO_bandwidth)
+
+            power_results[i_alpha, i_alt] = total_power / num_timeslots
+            rate_results[i_alpha, i_alt] = total_rate / num_timeslots
+        print(f"  >> Hoàn thành độ cao {alt:.0f} m")
+
+    # === VẼ ĐỒ THỊ ===
+    fig, ax1 = plt.subplots(figsize=(12, 7))
+
+    # Màu sắc cho từng giá trị alpha
+    colors = ['blue', 'green', 'red', 'orange']
+    markers = ['o', 's', '^', 'D']
+
+    # Trục y trái: Công suất trung bình
+    for i_alpha, alpha in enumerate(alphas):
+        ax1.plot(altitudes, power_results[i_alpha], color=colors[i_alpha], marker=markers[i_alpha],
+                 linestyle='-', linewidth=2, markersize=6,
+                 label=f'Power (α={alpha})')
+
+    ax1.set_xlabel('Độ cao UAV (m)', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('Công suất trung bình (W)', color='black', fontsize=12, fontweight='bold')
+    ax1.grid(True, linestyle='--', alpha=0.5)
+
+    # Trục y phải: Tốc độ dữ liệu
+    ax2 = ax1.twinx()
+    for i_alpha, alpha in enumerate(alphas):
+        ax2.plot(altitudes, rate_results[i_alpha], color=colors[i_alpha], marker=markers[i_alpha],
+                 linestyle='--', linewidth=2, markersize=6,
+                 label=f'Rate (α={alpha})')
+
+    ax2.set_ylabel('Tốc độ dữ liệu (Gbps)', color='black', fontsize=12, fontweight='bold')
+
+    # Gộp chú thích từ cả hai trục
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper center',
+               bbox_to_anchor=(0.5, 1.2), ncol=4, fontsize=10, frameon=True, edgecolor='black')
+
+    plt.title('Công suất thu được và tốc độ FSO theo độ cao UAV', y=1.28, fontweight='bold', fontsize=14)
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    main()
