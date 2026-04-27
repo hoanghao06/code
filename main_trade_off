@@ -6,49 +6,49 @@ def main():
     print("=== TRADE-OFF: POWER & RATE VS ALTITUDE (FIXED ALPHA) ===")
 
     # Simulation parameters
-    alt_min, alt_max, num_alts = 100, 2000, 20          # altitude from 100 to 2000m, 20 points
+    alt_min, alt_max, num_alts = 100, 2000, 20
     altitudes = np.linspace(alt_min, alt_max, num_alts)
-    alphas = [0.2, 0.4, 0.6, 0.8]                      # energy splitting ratio
+    alphas = [0.2, 0.4, 0.6, 0.8]
     num_timeslots = 300
 
     # Fixed coordinates
-    hap_pos = np.array([500, 500, 20000])              # HAP
-    irs_pos = np.array([0, 0, 80])                    # IRS
+    hap_pos = np.array([500, 500, 20000])
+    irs_pos = np.array([0, 0, 80])
 
-    # === LOAD DATA FROM NPY FILES ===
-    base_path = r'C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\main_output\output_rural_10\speed_10\0\flydata\\'
+    # === LOAD DATA ===
+    base_path = r'C:\Users\dohuy\Desktop\2026. Globecom\output_rural_10\speed_10\0\flydata\\'
     
     try:
         car_data = np.load(base_path + 'car_3.npy', allow_pickle=True).item()
         car_trajectory = car_data['car_0']
         
-        # Load Optimized Energy and Rate files
         energy_data = np.load(base_path + 'energy_3.npy', allow_pickle=True).item()
         rate_data = np.load(base_path + 'rate_3.npy', allow_pickle=True).item()
         
-        print("[+] Successfully loaded car trajectory, optimized energy and rate.")
+        print("[+] Loaded data successfully.")
     except Exception as e:
-        print(f"[!] File reading error: {e}. Please check the path.")
+        print(f"[!] File reading error: {e}")
         return 
 
-    # CALCULATE AVERAGE OPTIMIZED VALUES
+    # === OPTIMIZED VALUES ===
     opt_rate_mean = np.mean(rate_data['mean_rate'])
     opt_power_mean = np.mean(energy_data['solar energy'] + energy_data['fso energy'] * 0.2)
     
-    print(f"[i] Average Optimized Rate: {opt_rate_mean:.4f} Gbps")
-    print(f"[i] Average Optimized Power (alpha=0.2): {opt_power_mean:.4f} W")
+    print(f"[i] Avg Rate: {opt_rate_mean:.4f} Gbps")
+    print(f"[i] Avg Power: {opt_power_mean:.4f} W")
 
-    # Arrays to store results
+    # Result arrays
     power_results = np.zeros((len(alphas), len(altitudes)))
     rate_results = np.zeros((len(alphas), len(altitudes)))
 
     # === SIMULATION ===
-    print(f"Running simulation for {len(altitudes)} altitudes, {len(alphas)} alpha values...")
+    print("Running simulation...")
     for i_alt, alt in enumerate(altitudes):
         pos_above = np.array([0, 0, alt])            
         for i_alpha, alpha in enumerate(alphas):
             total_power = 0.0
             total_rate = 0.0
+
             for t in range(num_timeslots):
                 car_pos = car_trajectory[min(t, len(car_trajectory)-1)]
 
@@ -63,62 +63,67 @@ def main():
 
             power_results[i_alpha, i_alt] = total_power / num_timeslots
             rate_results[i_alpha, i_alt] = total_rate / num_timeslots
-        print(f"  >> Completed altitude {alt:.0f} m")
 
-    # === PLOT THE RESULTS ===
+        print(f"  >> Done altitude {alt:.0f} m")
+
+    # === PLOT ===
     fig, ax1 = plt.subplots(figsize=(12, 7)) 
 
-    # Colors and markers
-    colors = ['blue', 'green', 'red', 'orange']
     markers = ['o', 's', '^', 'D']
 
-    # --- 1. Left Axis: POWER (Solid Lines, Filled Markers) ---
+    # --- POWER (RED) ---
     for i_alpha, alpha in enumerate(alphas):
-        ax1.plot(altitudes, power_results[i_alpha], color=colors[i_alpha], marker=markers[i_alpha],
+        ax1.plot(altitudes, power_results[i_alpha],
+                 color='red', marker=markers[i_alpha],
                  linestyle='-', linewidth=2, markersize=7,
-                 label=f'Power (α={alpha})')
+                 label=rf'Harvested power ($\alpha_{{\mathrm{{split}}}}={alpha}$)')
 
     ax1.axhline(y=opt_power_mean, color='black', linestyle='-', linewidth=2.5, 
-                label=r'Optimized Power (α=0.2)')
+                label='Harvested power with Algorithm 1')
 
-    ax1.set_xlabel('UAV Altitude (m)', fontsize=12, fontweight='bold')
-    ax1.set_ylabel('Average Power (W)', color='black', fontsize=12, fontweight='bold')
+    ax1.set_xlabel('UAV Altitude (m)', fontsize=14)
+    ax1.set_ylabel('Average harvested power (W)', color='red', fontsize=14)
+    ax1.tick_params(axis='y', colors='red')
     ax1.grid(True, linestyle='--', alpha=0.5)
 
-    # --- 2. Right Axis: FSO RATE (Dashed Lines, Hollow Markers) ---
+    # --- RATE (BLUE) ---
     ax2 = ax1.twinx()
     for i_alpha, alpha in enumerate(alphas):
-        ax2.plot(altitudes, rate_results[i_alpha], color=colors[i_alpha], marker=markers[i_alpha],
-                 linestyle='--', linewidth=2, markersize=7, 
-                 markerfacecolor='white', markeredgewidth=1.5, 
-                 label=f'Rate (α={alpha})')
+        ax2.plot(altitudes, rate_results[i_alpha],
+                 color='blue', marker=markers[i_alpha],
+                 linestyle='--', linewidth=2, markersize=7,
+                 markerfacecolor='white', markeredgewidth=1.5,
+                 label=rf'Data rate ($\alpha_{{\mathrm{{split}}}}={alpha}$)')
 
     ax2.axhline(y=opt_rate_mean, color='black', linestyle='--', linewidth=2.5, 
-                label='Optimized Rate')
+                label='Data rate with Algorithm 1')
 
-    ax2.set_ylabel('Average FSO Rate (Gbps)', color='black', fontsize=12, fontweight='bold')
+    ax2.set_ylabel('Average data rate (Gbps)', color='blue', fontsize=14)
+    ax2.tick_params(axis='y', colors='blue')
 
-    # --- 3. ALIGN LEGENDS ---
-    # Legend 1 (Power)
-    leg1 = ax1.legend(loc='upper right', bbox_to_anchor=(0.49, 1.18), ncol=2,
-                      title="Power (Solid Lines)", title_fontsize=11, 
-                      fontsize=10, frameon=True, edgecolor='black')
-    leg1.get_title().set_fontweight('bold')
+    # --- COMBINED LEGEND ---
+    handles1, labels1 = ax1.get_legend_handles_labels()
+    handles2, labels2 = ax2.get_legend_handles_labels()
 
-    # Legend 2 (Rate)
-    leg2 = ax2.legend(loc='upper left', bbox_to_anchor=(0.51, 1.18), ncol=2,
-                      title="Rate (Dashed Lines)", title_fontsize=11, 
-                      fontsize=10, frameon=True, edgecolor='black')
-    leg2.get_title().set_fontweight('bold')
+    handles = handles1 + handles2
+    labels = labels1 + labels2
 
-    # Adjust Title
-    plt.title('Harvested Power and FSO Data Rate vs UAV Altitude', y=1.24, fontweight='bold', fontsize=14)
-    
-    # Apply tight layout and adjust top margin
+    legend = ax1.legend(handles, labels,
+                        loc='upper center',
+                        bbox_to_anchor=(0, 1.06, 1, 0.1),
+                        mode='expand',
+                        ncol=4,
+                        fontsize=10,
+                        frameon=True)
+
+    legend.get_frame().set_edgecolor('black')
+
+    # Layout fix (legend sát hơn)
     plt.tight_layout()
-    fig.subplots_adjust(top=0.80) 
-    
+    fig.subplots_adjust(top=0.88)
+
     plt.show()
+
 
 if __name__ == "__main__":
     main()
