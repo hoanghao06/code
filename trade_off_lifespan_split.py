@@ -1,9 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-# NHÚNG THÊM HÀM TỪ FILE CHANNEL
-from channel import total_harvested_energy
-
 # =====================================================================
 # MÔ HÌNH NĂNG LƯỢNG 
 # =====================================================================
@@ -62,27 +59,34 @@ def get_dynamic_solar_power(SC_mass):
 # 1. Các thông số đầu vào cố định
 U_mass = 10.0                 # Khối lượng UAV cố định (kg)
 g = 9.81                      # Gia tốc trọng trường (m/s^2)
-velocity = 20.0             
 
 # ---------------------------------------------------------
-# [MỚI] TÍNH TOÁN ĐỘNG CÔNG SUẤT FSO SẠC VÀO PIN
+# CỐ ĐỊNH VẬN TỐC UAV 
 # ---------------------------------------------------------
-# Thiết lập tọa độ (Giả định UAV đang ở độ cao 100m để khớp với tính toán nội suy khí quyển ở trên)
-hap_pos = np.array([500, 500, 20000])
-irs_pos = np.array([0, 0, 80])
-uav_pos = np.array([400, 100, 100]) # Z_UAV nằm trong khoảng 100m - 2000m
+velocity = 20.0
+print(f"[+] Đã cố định vận tốc UAV: {velocity} m/s")
 
-# Gọi hàm tính tổng năng lượng để lấy giá trị P_battery_fso
-# energy_ratio = 0.2 tương ứng với alpha_split
-_, _, _, P_battery_fso, _ = total_harvested_energy(
-    hap_pos, irs_pos, uav_pos, duration=1, energy_ratio=0.2
-)
+# ---------------------------------------------------------
+# TRÍCH XUẤT NĂNG LƯỢNG FSO THỰC TỪ FILE ENERGY_3.NPY
+# ---------------------------------------------------------
+try:
+    energy_data = np.load(r'C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\main_output\output_rural_10\speed_10\0\flydata\energy_3.npy', allow_pickle=True).item()
+    fso_energy_array = energy_data['fso energy']
+    
+    # Lấy giá trị trung bình trên toàn quỹ đạo làm công suất thực tế
+    P_battery_fso = np.mean(fso_energy_array)
+    
+    print(f"[+] Trích xuất dữ liệu năng lượng thành công.")
+    print(f"[+] Công suất FSO sạc vào pin trung bình (P_battery_fso): {P_battery_fso:.4e} Watt")
+except Exception as e:
+    print(f"[-] Lỗi khi đọc file energy_3.npy: {e}")
+    P_battery_fso = 0.0
 
-print(f"[+] Tính toán kênh truyền thành công.")
-print(f"[+] Công suất FSO sạc vào pin (P_battery_fso): {P_battery_fso:.4e} W")
+# ---------------------------------------------------------
+# TÍNH TOÁN TUỔI THỌ VÀ VẼ ĐỒ THỊ
 # ---------------------------------------------------------
 
-# 5 cấu hình dung lượng pin E_b (Wh)
+# 3 cấu hình dung lượng pin E_b (Wh)
 battery_configs = [
     {"E_b": 291.72, "color": "blue",    "marker": "o"}, # Kịch bản 1
     {"E_b": 276.00, "color": "teal",    "marker": "s"}, # Kịch bản 2
@@ -94,8 +98,6 @@ SC_mass_array = np.linspace(0.05, 0.5, 20)
 
 # Mảng Tổng khối lượng UAV (Mass) - CHÍNH LÀ TRỤC X
 M_array = U_mass + SC_mass_array
-
-# Mảng Tổng trọng lượng (Weight) dùng cho tính toán vật lý nội bộ
 W_array = M_array * g
 
 plt.figure(figsize=(10, 7))
@@ -109,12 +111,12 @@ P_c = P_propulsion + uav_model.P_c
 
 # Tính công suất thu hoạch P_h
 P_solar = get_dynamic_solar_power(SC_mass_array)
-# Cộng công suất FSO vừa tính động được vào tổng công suất thu hoạch
+# Cộng công suất FSO trung bình từ file vào tổng công suất thu hoạch
 P_h = P_solar + P_battery_fso 
 
 # 2. Vòng lặp vẽ đồ thị cho từng dung lượng pin Eb
 for config in battery_configs:
-    E_b_joules = config["E_b"] * 3600 # Đổi Wh sang Joules
+    E_b_joules = config["E_b"] * 3600 # Đổi Wh sang Joules (Watt-giây)
     
     # Tính Lifespan 
     Ls = np.zeros_like(M_array)
