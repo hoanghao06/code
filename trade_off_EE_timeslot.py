@@ -24,15 +24,15 @@ def main():
     # =========================================================
     # 1. LOAD DỮ LIỆU TỪ CÁC FILE NPY
     # =========================================================
-    car_data = np.load(r'C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\main_output\output_rural_10\speed_10\0\flydata\car_3.npy', allow_pickle=True).item()
+    car_data = np.load(r'C:\Users\dohuy\Desktop\2026. Globecom\output_rural_10\speed_10\0\flydata\car_3.npy', allow_pickle=True).item()
     car_trajectory = car_data['car_0'] if 'car_0' in car_data else list(car_data.values())[0]
 
-    uav_data = np.load(r'C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\main_output\output_rural_10\speed_10\0\flydata\uav_3.npy', allow_pickle=True).item()
+    uav_data = np.load(r'C:\Users\dohuy\Desktop\2026. Globecom\output_rural_10\speed_10\0\flydata\uav_3.npy', allow_pickle=True).item()
     uav_trajectory = uav_data['position']
     uav_velocities = uav_data['velocity']
 
-    energy_data = np.load(r'C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\main_output\output_rural_10\speed_10\0\flydata\energy_3.npy', allow_pickle=True).item()
-    rate_data = np.load(r'C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\main_output\output_rural_10\speed_10\0\flydata\rate_3.npy', allow_pickle=True).item()
+    energy_data = np.load(r'C:\Users\dohuy\Desktop\2026. Globecom\output_rural_10\speed_10\0\flydata\energy_3.npy', allow_pickle=True).item()
+    rate_data = np.load(r'C:\Users\dohuy\Desktop\2026. Globecom\output_rural_10\speed_10\0\flydata\rate_3.npy', allow_pickle=True).item()
 
     # =========================================================
     # 2. TÍNH TOÁN EE CHO QUỸ ĐẠO TỐI ƯU 
@@ -104,15 +104,15 @@ def main():
             EE_fixed_alts[z].append(ee)
 
     # =========================================================
-    # 4. TÍNH TOÁN EE CHO QUỸ ĐẠO RANDOM (Bắt đầu tại 100, 100, 1500)
+    # 4. TÍNH TOÁN EE CHO QUỸ ĐẠO RANDOM (Bắt đầu tại 500, 500, 500)
     # =========================================================
     EE_random = []
     denominators_random = []
     instant_rates_random = []
     harvested_power_random = [] # Mảng lưu năng lượng thu hoạch tức thời để in ra
     
-    np.random.seed(42) # Cố định seed
-    curr_random_pos = np.array([100.0, 100.0, 800.0])
+    np.random.seed(1052026) # Cố định seed
+    curr_random_pos = np.array([500.0, 500.0, 800.0])
     fixed_uav_velocity = 20.0 
     
     print("Đang tính toán cho quỹ đạo Random 3D...")
@@ -144,13 +144,13 @@ def main():
         # Tính Rate tức thời
         h_acc, _, _, _ = get_fso_access(curr_random_pos, car_pos)
         gamma = get_snr(h_acc, p_tx, curr_random_pos)
-        r_mbps = data_rate(gamma, FSO_bandwidth) * 1000.0
+        r_mbps = data_rate(gamma, FSO_bandwidth) * 1000
         instant_rates_random.append(r_mbps)
         
     overall_random_rate_mbps = np.mean(instant_rates_random)
     
     # In ra các thông số của quỹ đạo Random
-    print(f" -> Quỹ đạo Random có Rate trung bình: {overall_random_rate_mbps:.2f} Mbps")
+    print(f" -> Quỹ đạo Random có Rate trung bình: {overall_random_rate_mbps:.2f} Gbps")
     print(f" -> Quỹ đạo Random có Công suất thu hoạch (P_h) trung bình: {np.mean(harvested_power_random):.4f} W")
     print(f" -> Quỹ đạo Random có Tổng năng lượng thu hoạch (300s): {np.sum(harvested_power_random):.2f} Joules")
     
@@ -172,27 +172,25 @@ def main():
 
     # Vẽ đường Tối ưu
     ax.plot(times, EE_optimized, color='red', linewidth=3, 
-            label='Optimized Trajectory', zorder=5)
+            label='Optimized Trajectory with Algorithm 1', zorder=5)
 
     # Vẽ đường Độ cao cố định Z = 800m
     ax.plot(times, EE_fixed_alts[800], color='blue', linestyle='--', linewidth=2, 
-            alpha=0.8, label=r'Fixed Altitude ($Z = 800$ m)')
+            alpha=0.8, label='Fixed UAV position')
     
     # Vẽ đường Random
     ax.plot(times, EE_random, color='darkgreen', linestyle='-.', linewidth=2.5, 
-            alpha=0.9, label='Random Trajectory')
+            alpha=0.9, label='Random UAV Trajectory')
 
     # Căn chỉnh biểu đồ
-    ax.set_xlabel(r'Timeslot ($t$)', fontsize=13, fontweight='bold')
-    ax.set_ylabel(r'Energy Efficiency (Mbps/W)', fontsize=13, fontweight='bold')
+    ax.set_xlabel(r'Timeslot ($t$)', fontsize=16)
+    ax.set_ylabel(r'Energy Efficiency (Mbps/W)', fontsize=16)
     
     ax.set_xlim(0, num_timeslots)
     ax.tick_params(axis='both', labelsize=11)
     ax.grid(True, linestyle=':', alpha=0.7)
 
-    ax.legend(loc='upper right', fontsize=11, frameon=True, edgecolor='black')
-
-    plt.title(rf'Energy Efficiency over Time ($\alpha_{{split}} = {alpha_fixed}$)', fontweight='bold', fontsize=14)
+    ax.legend(loc='upper right', fontsize=14, frameon=True, edgecolor='black')
     plt.tight_layout()
     plt.show()
 
