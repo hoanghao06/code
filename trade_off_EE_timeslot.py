@@ -51,7 +51,7 @@ def main():
         p_c = uav_model.propulsion_power(v_uav) + uav_model.P_c
         
         # Năng lượng thu hoạch từ file
-        p_sol_opt = energy_data['solar energy'][t]
+        p_sol_opt = (energy_data['solar energy'][t] / 0.9) * 0.4
         p_fso_opt = energy_data['fso energy'][t]
         p_h_opt = p_sol_opt + (p_fso_opt * alpha_fixed)
         
@@ -90,7 +90,7 @@ def main():
             _, p_sol, _, p_batt_fso, p_tx = total_harvested_energy(
                 hap_pos, irs_pos, current_uav_pos, duration=1, energy_ratio=alpha_fixed
             )
-            p_h = p_sol + p_batt_fso
+            p_h = (p_sol / 0.9) * 0.4 + p_batt_fso
             denominators.append(p_c - p_h) # Lưu mẫu số lại
             
             # Tính Kênh truyền & Rate tức thời
