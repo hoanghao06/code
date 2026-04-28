@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from channel import total_harvested_energy, get_fso_access, get_snr, data_rate, FSO_bandwidth, UAVEnergyModel
 
 def main():
-    print("=== TÍNH TOÁN EE (TỬ SỐ LÀ RATE TRUNG BÌNH CỦA RIÊNG TỪNG ĐỘ CAO) ===")
+    print("=== TÍNH TOÁN EE (TỬ SỐ LÀ RATE TRUNG BÌNH CỦA RIÊNG TỪNG TRƯỜNG HỢP) ===")
 
     num_timeslots = 300
     times = np.arange(num_timeslots)
@@ -13,8 +13,8 @@ def main():
     # Cố định tỷ lệ chia năng lượng
     alpha_fixed = 0.2 
     
-    # Các độ cao UAV giả định để vẽ các đường so sánh (m)
-    altitudes = [400, 800, 1800] 
+    # Độ cao UAV giả định (chỉ lấy 800m)
+    altitudes = [800] 
     
     # Tọa độ cơ bản của HAP và IRS
     hap_pos = np.array([500, 500, 20000])
@@ -24,7 +24,6 @@ def main():
     # =========================================================
     # 1. LOAD DỮ LIỆU TỪ CÁC FILE NPY
     # =========================================================
-    # Đã thêm chữ r phía trước đường dẫn để tránh lỗi Unicode
     car_data = np.load(r'C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\main_output\output_rural_10\speed_10\0\flydata\car_3.npy', allow_pickle=True).item()
     car_trajectory = car_data['car_0'] if 'car_0' in car_data else list(car_data.values())[0]
 
@@ -36,9 +35,8 @@ def main():
     rate_data = np.load(r'C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\main_output\output_rural_10\speed_10\0\flydata\rate_3.npy', allow_pickle=True).item()
 
     # =========================================================
-    # 2. TÍNH TOÁN EE CHO QUỸ ĐẠO TỐI ƯU (Dùng Rate trung bình của chính nó)
+    # 2. TÍNH TOÁN EE CHO QUỸ ĐẠO TỐI ƯU 
     # =========================================================
-    # Tính Rate trung bình của đường tối ưu (hằng số)
     overall_opt_rate_gbps = np.mean(rate_data['mean_rate'])
     overall_opt_rate_mbps = overall_opt_rate_gbps * 1000.0
     print(f"[+] Rate trung bình của quỹ đạo tối ưu: {overall_opt_rate_mbps:.2f} Mbps")
@@ -64,46 +62,39 @@ def main():
         EE_optimized.append(ee)
 
     # =========================================================
-    # 3. TÍNH TOÁN EE CHO CÁC ĐỘ CAO CỐ ĐỊNH (Mỗi độ cao tự tính Rate trung bình riêng)
+    # 3. TÍNH TOÁN EE CHO CỐ ĐỊNH Z = 800m
     # =========================================================
     EE_fixed_alts = {z: [] for z in altitudes}
 
-    print("Đang quét tính toán lại cho các độ cao giả định...")
+    print("Đang tính toán cho độ cao Z = 800m...")
     for z in altitudes:
-        denominators = [] # Tạm lưu mẫu số của 300s
-        instant_rates = [] # Tạm lưu Rate của 300s để tính trung bình
+        denominators = [] 
+        instant_rates = [] 
         
-        # BƯỚC 1: Quét 300 giây để lấy các giá trị
         for t in range(num_timeslots):
             car_pos = car_trajectory[min(t, len(car_trajectory) - 1)]
             
-            # Lấy X, Y từ quỹ đạo thực tế, ép độ cao bằng z
             uav_pos_raw = uav_trajectory[min(t, len(uav_trajectory) - 1)]
             current_uav_pos = np.array([uav_pos_raw[0], uav_pos_raw[1], z])
 
-            # Tính P_c
             v_vector = uav_velocities[min(t, len(uav_velocities)-1)]
             v_uav = np.sqrt(v_vector[0]**2 + v_vector[1]**2) 
             p_c = uav_model.propulsion_power(v_uav) + uav_model.P_c
 
-            # Tính P_h
             _, p_sol, _, p_batt_fso, p_tx = total_harvested_energy(
                 hap_pos, irs_pos, current_uav_pos, duration=1, energy_ratio=alpha_fixed
             )
             p_h = (p_sol / 0.9) * 0.4 + p_batt_fso
-            denominators.append(p_c - p_h) # Lưu mẫu số lại
+            denominators.append(p_c - p_h) 
             
-            # Tính Kênh truyền & Rate tức thời
             h_acc, _, _, _ = get_fso_access(current_uav_pos, car_pos)
             gamma = get_snr(h_acc, p_tx, current_uav_pos)
             r_mbps = data_rate(gamma, FSO_bandwidth) * 1000.0
-            instant_rates.append(r_mbps) # Lưu Rate tức thời lại
+            instant_rates.append(r_mbps) 
             
-        # BƯỚC 2: Tính Rate trung bình của RIÊNG độ cao z này
         overall_z_rate_mbps = np.mean(instant_rates)
         print(f" -> Z = {z} m có Rate trung bình riêng: {overall_z_rate_mbps:.2f} Mbps")
         
-        # BƯỚC 3: Tính mảng EE hoàn chỉnh cho độ cao z
         for t in range(num_timeslots):
             net_power = denominators[t]
             if net_power > 0:
@@ -112,23 +103,84 @@ def main():
                 ee = np.nan
             EE_fixed_alts[z].append(ee)
 
+    # =========================================================
+    # 4. TÍNH TOÁN EE CHO QUỸ ĐẠO RANDOM (Bắt đầu tại 100, 100, 1500)
+    # =========================================================
+    EE_random = []
+    denominators_random = []
+    instant_rates_random = []
+    harvested_power_random = [] # Mảng lưu năng lượng thu hoạch tức thời để in ra
+    
+    np.random.seed(42) # Cố định seed
+    curr_random_pos = np.array([100.0, 100.0, 800.0])
+    fixed_uav_velocity = 20.0 
+    
+    print("Đang tính toán cho quỹ đạo Random 3D...")
+    for t in range(num_timeslots):
+        car_pos = car_trajectory[min(t, len(car_trajectory) - 1)]
+        
+        # Tạo hướng di chuyển ngẫu nhiên
+        theta = np.random.uniform(0, 2 * np.pi)
+        phi = np.random.uniform(0, np.pi)
+        
+        dx = fixed_uav_velocity * np.sin(phi) * np.cos(theta)
+        dy = fixed_uav_velocity * np.sin(phi) * np.sin(theta)
+        dz = fixed_uav_velocity * np.cos(phi)
+        
+        curr_random_pos = curr_random_pos + np.array([dx, dy, dz])
+        curr_random_pos[2] = np.maximum(curr_random_pos[2], 50.0) # Tránh đâm xuống đất
+
+        # Tính P_c
+        p_c = uav_model.propulsion_power(fixed_uav_velocity) + uav_model.P_c
+
+        # Tính P_h
+        _, p_sol, _, p_batt_fso, p_tx = total_harvested_energy(
+            hap_pos, irs_pos, curr_random_pos, duration=1, energy_ratio=alpha_fixed
+        )
+        p_h = (p_sol / 0.9) * 0.4 + p_batt_fso
+        denominators_random.append(p_c - p_h)
+        harvested_power_random.append(p_h) # Lưu P_h vào mảng
+        
+        # Tính Rate tức thời
+        h_acc, _, _, _ = get_fso_access(curr_random_pos, car_pos)
+        gamma = get_snr(h_acc, p_tx, curr_random_pos)
+        r_mbps = data_rate(gamma, FSO_bandwidth) * 1000.0
+        instant_rates_random.append(r_mbps)
+        
+    overall_random_rate_mbps = np.mean(instant_rates_random)
+    
+    # In ra các thông số của quỹ đạo Random
+    print(f" -> Quỹ đạo Random có Rate trung bình: {overall_random_rate_mbps:.2f} Mbps")
+    print(f" -> Quỹ đạo Random có Công suất thu hoạch (P_h) trung bình: {np.mean(harvested_power_random):.4f} W")
+    print(f" -> Quỹ đạo Random có Tổng năng lượng thu hoạch (300s): {np.sum(harvested_power_random):.2f} Joules")
+    
+    # Tính EE mảng hoàn chỉnh cho Random
+    for t in range(num_timeslots):
+        net_power = denominators_random[t]
+        if net_power > 0:
+            ee = overall_random_rate_mbps / net_power
+        else:
+            ee = np.nan
+        EE_random.append(ee)
+
     print("Tính toán xong! Đang hiển thị đồ thị...")
 
     # =========================================================
-    # 4. VẼ BIỂU ĐỒ 
+    # 5. VẼ BIỂU ĐỒ 
     # =========================================================
     fig, ax = plt.subplots(figsize=(11, 6.5))
 
-    # Vẽ đường Tối ưu (Dữ liệu gốc từ RL)
+    # Vẽ đường Tối ưu
     ax.plot(times, EE_optimized, color='red', linewidth=3, 
-            label='Optimized Trajectory (Dynamic Z)', zorder=5)
+            label='Optimized Trajectory', zorder=5)
 
-    # Vẽ các đường Độ cao cố định
-    colors = ['blue', 'darkgreen', 'orange']
-    labels = ['Below Cloud', 'Inside Cloud', 'Above Cloud']
-    for i, z in enumerate(altitudes):
-        ax.plot(times, EE_fixed_alts[z], color=colors[i], linestyle='--', linewidth=2, 
-                alpha=0.8, label=rf'Fixed Alt = {z}m ({labels[i]})')
+    # Vẽ đường Độ cao cố định Z = 800m
+    ax.plot(times, EE_fixed_alts[800], color='blue', linestyle='--', linewidth=2, 
+            alpha=0.8, label=r'Fixed Altitude ($Z = 800$ m)')
+    
+    # Vẽ đường Random
+    ax.plot(times, EE_random, color='darkgreen', linestyle='-.', linewidth=2.5, 
+            alpha=0.9, label='Random Trajectory')
 
     # Căn chỉnh biểu đồ
     ax.set_xlabel(r'Timeslot ($t$)', fontsize=13, fontweight='bold')
