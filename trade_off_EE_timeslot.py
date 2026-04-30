@@ -24,15 +24,15 @@ def main():
     # =========================================================
     # 1. LOAD DỮ LIỆU TỪ CÁC FILE NPY
     # =========================================================
-    car_data = np.load(r'C:\Users\dohuy\Desktop\2026. Globecom\output_rural_10\speed_10\0\flydata\car_3.npy', allow_pickle=True).item()
+    car_data = np.load(r'C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\main_output\output_rural_10\speed_10\0\flydata\car_3.npy', allow_pickle=True).item()
     car_trajectory = car_data['car_0'] if 'car_0' in car_data else list(car_data.values())[0]
 
-    uav_data = np.load(r'C:\Users\dohuy\Desktop\2026. Globecom\output_rural_10\speed_10\0\flydata\uav_3.npy', allow_pickle=True).item()
+    uav_data = np.load(r'C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\main_output\output_rural_10\speed_10\0\flydata\uav_3.npy', allow_pickle=True).item()
     uav_trajectory = uav_data['position']
     uav_velocities = uav_data['velocity']
 
-    energy_data = np.load(r'C:\Users\dohuy\Desktop\2026. Globecom\output_rural_10\speed_10\0\flydata\energy_3.npy', allow_pickle=True).item()
-    rate_data = np.load(r'C:\Users\dohuy\Desktop\2026. Globecom\output_rural_10\speed_10\0\flydata\rate_3.npy', allow_pickle=True).item()
+    energy_data = np.load(r'C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\main_output\output_rural_10\speed_10\0\flydata\energy_3.npy', allow_pickle=True).item()
+    rate_data = np.load(r'C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\main_output\output_rural_10\speed_10\0\flydata\rate_3.npy', allow_pickle=True).item()
 
     # =========================================================
     # 2. TÍNH TOÁN EE CHO QUỸ ĐẠO TỐI ƯU 
@@ -168,7 +168,7 @@ def main():
     # =========================================================
     # 5. VẼ BIỂU ĐỒ 
     # =========================================================
-    fig, ax = plt.subplots(figsize=(11, 6.5))
+    fig, ax = plt.subplots(figsize=(11, 9.5))
 
     # Vẽ đường Tối ưu
     ax.plot(times, EE_optimized, color='red', linewidth=3, 
@@ -182,15 +182,26 @@ def main():
     ax.plot(times, EE_random, color='darkgreen', linestyle='-.', linewidth=2.5, 
             alpha=0.9, label='Random UAV Trajectory')
 
-    # Căn chỉnh biểu đồ
-    ax.set_xlabel(r'Timeslot ($t$)', fontsize=16)
-    ax.set_ylabel(r'Energy Efficiency (Mbps/W)', fontsize=16)
+    # CẬP NHẬT CỠ CHỮ LÊN 24
+    ax.set_xlabel(r'Timeslot ($t$)', fontsize=24)
+    ax.set_ylabel(r'Energy Efficiency (Mbps/W)', fontsize=24)
     
     ax.set_xlim(0, num_timeslots)
-    ax.tick_params(axis='both', labelsize=11)
+    
+    # CẬP NHẬT CỠ SỐ LÊN 24
+    ax.tick_params(axis='both', labelsize=24)
     ax.grid(True, linestyle=':', alpha=0.7)
 
-    ax.legend(loc='upper right', fontsize=14, frameon=True, edgecolor='black')
+    # Tăng nhẹ cỡ chữ legend lên 16 cho cân đối
+    ax.legend(loc='upper right', fontsize=16, frameon=True, edgecolor='black')
+    plt.tight_layout()
+    # ... (các dòng code set label, xlim, tick_params, legend của bạn giữ nguyên) ...
+
+    # Thêm dòng này để ép tỷ lệ lõi đồ thị
+    # 1.0 = Hình vuông hoàn toàn
+    # 1.1 hoặc 1.2 = Khung hình sẽ cao hơn chiều rộng một chút
+    ax.set_box_aspect(0.9)
+
     plt.tight_layout()
     plt.show()
 
