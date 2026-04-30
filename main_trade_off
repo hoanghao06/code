@@ -1,12 +1,13 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.lines as mlines
 from channel import total_harvested_energy, get_fso_access, get_snr, data_rate, FSO_bandwidth
 
 def main():
     print("=== TRADE-OFF: POWER & RATE VS ALTITUDE (FIXED ALPHA) ===")
 
     # Simulation parameters
-    alt_min, alt_max, num_alts = 100, 2000, 20
+    alt_min, alt_max, num_alts = 0, 2000, 20
     altitudes = np.linspace(alt_min, alt_max, num_alts)
     alphas = [0.2, 0.4, 0.6, 0.8]
     num_timeslots = 300
@@ -16,7 +17,7 @@ def main():
     irs_pos = np.array([0, 0, 80])
 
     # === LOAD DATA ===
-    base_path = r'C:\Users\dohuy\Desktop\2026. Globecom\output_rural_10\speed_10\0\flydata\\'
+    base_path = r'C:\Users\DELL\Desktop\nckh\prj1\2026.-Tien_Hao-main\2026.-Tien_Hao-main\main_output\output_rural_10\speed_10\0\flydata\\'
     
     try:
         car_data = np.load(base_path + 'car_3.npy', allow_pickle=True).item()
@@ -34,9 +35,6 @@ def main():
     opt_rate_mean = np.mean(rate_data['mean_rate'])
     opt_power_mean = np.mean(energy_data['solar energy'] + energy_data['fso energy'] * 0.2)
     
-    print(f"[i] Avg Rate: {opt_rate_mean:.4f} Gbps")
-    print(f"[i] Avg Power: {opt_power_mean:.4f} W")
-
     # Result arrays
     power_results = np.zeros((len(alphas), len(altitudes)))
     rate_results = np.zeros((len(alphas), len(altitudes)))
@@ -67,7 +65,23 @@ def main():
         print(f"  >> Done altitude {alt:.0f} m")
 
     # === PLOT ===
-    fig, ax1 = plt.subplots(figsize=(12, 7)) 
+    fig, ax1 = plt.subplots(figsize=(14, 9)) 
+
+    # --- THÊM PHÂN VÙNG MÀU NỀN ---
+    # Tô màu theo trục X: (xmin, xmax, color, alpha) với alpha là độ trong suốt
+    ax1.axvspan(0, 500, facecolor='#f2eedc', alpha=0.8)       # Dưới mây (vàng nhạt)
+    ax1.axvspan(500, 1000, facecolor='#d3d3d3', alpha=0.6)    # Trong mây (xám)
+    ax1.axvspan(1000, 2000, facecolor='#dcedf2', alpha=0.8)   # Trên mây (xanh lơ nhạt)
+
+    # --- THÊM CHỮ CHÚ THÍCH CHO CÁC VÙNG (VỊ TRÍ LỆCH) ---
+    # x: chỉnh vị trí trái/phải trong vùng
+    # y: chỉnh độ cao/thấp khác nhau cho tự nhiên
+    ax1.text(100, 410, 'Case 1', fontsize=18, color='#333333', fontweight='bold')
+    ax1.text(550, 410, 'Case 2', fontsize=18, color='#333333', fontweight='bold')
+    ax1.text(1100, 330, 'Case 3', fontsize=18, color='#333333', fontweight='bold')
+    
+    # Thiết lập giới hạn trục x ngay từ 0 để các mảng màu lấp đầy mép trái
+    ax1.set_xlim(0, 2000)
 
     markers = ['o', 's', '^', 'D']
 
@@ -75,15 +89,22 @@ def main():
     for i_alpha, alpha in enumerate(alphas):
         ax1.plot(altitudes, power_results[i_alpha],
                  color='red', marker=markers[i_alpha],
-                 linestyle='-', linewidth=2, markersize=7,
+                 linestyle='-', linewidth=2, markersize=8,
                  label=rf'Harvested power ($\alpha_{{\mathrm{{split}}}}={alpha}$)')
 
-    ax1.axhline(y=opt_power_mean, color='black', linestyle='-', linewidth=2.5, 
+    ax1.axhline(y=opt_power_mean, color='red', linestyle='-', linewidth=2.5, 
                 label='Harvested power with Algorithm 1')
 
-    ax1.set_xlabel('UAV Altitude (m)', fontsize=14)
-    ax1.set_ylabel('Average harvested power (W)', color='red', fontsize=14)
-    ax1.tick_params(axis='y', colors='red')
+    # GIẢM CỠ CHỮ TÊN TRỤC XUỐNG 24 (TRƯỚC LÀ 28), GIỮ NGUYÊN SỐ LÀ 22
+    ax1.set_xlabel('UAV Altitude (m)', fontsize=24)
+    ax1.set_ylabel('Average harvested power (W)', color='red', fontsize=24)
+    ax1.tick_params(axis='x', labelsize=22)
+    ax1.tick_params(axis='y', colors='red', labelsize=22)
+    ax1.spines['left'].set_color('red')       
+    ax1.spines['left'].set_linewidth(1.5)     
+    
+    # Giữ nguyên khoảng trống ở trên cho legend
+    ax1.set_ylim(bottom=-20, top=600)
     ax1.grid(True, linestyle='--', alpha=0.5)
 
     # --- RATE (BLUE) ---
@@ -91,39 +112,46 @@ def main():
     for i_alpha, alpha in enumerate(alphas):
         ax2.plot(altitudes, rate_results[i_alpha],
                  color='blue', marker=markers[i_alpha],
-                 linestyle='--', linewidth=2, markersize=7,
+                 linestyle='--', linewidth=2, markersize=8,
                  markerfacecolor='white', markeredgewidth=1.5,
                  label=rf'Data rate ($\alpha_{{\mathrm{{split}}}}={alpha}$)')
 
-    ax2.axhline(y=opt_rate_mean, color='black', linestyle='--', linewidth=2.5, 
+    ax2.axhline(y=opt_rate_mean, color='blue', linestyle='--', linewidth=2.5, 
                 label='Data rate with Algorithm 1')
 
-    ax2.set_ylabel('Average data rate (Gbps)', color='blue', fontsize=14)
-    ax2.tick_params(axis='y', colors='blue')
+    # GIẢM CỠ CHỮ TÊN TRỤC Y PHẢI XUỐNG 24, GIỮ NGUYÊN SỐ LÀ 22
+    ax2.set_ylabel('Average data rate (Gbps)', color='blue', fontsize=24)
+    ax2.tick_params(axis='y', colors='blue', labelsize=22)
+    ax2.spines['right'].set_color('blue')     
+    ax2.spines['right'].set_linewidth(1.5)    
 
-    # --- COMBINED LEGEND ---
+    ax2.set_ylim(bottom=1.8, top=8.2)
+
+    # --- SẮP XẾP LẠI LEGEND THEO 2 CỘT ---
     handles1, labels1 = ax1.get_legend_handles_labels()
     handles2, labels2 = ax2.get_legend_handles_labels()
 
-    handles = handles1 + handles2
-    labels = labels1 + labels2
+    new_handles = handles1 + handles2
+    new_labels = labels1 + labels2
 
-    legend = ax1.legend(handles, labels,
+    legend = ax1.legend(new_handles, new_labels,
                         loc='upper center',
-                        bbox_to_anchor=(0, 1.06, 1, 0.1),
-                        mode='expand',
-                        ncol=4,
-                        fontsize=10,
+                        bbox_to_anchor=(0.5, 0.98), 
+                        ncol=2,                 
+                        fontsize=12,            
+                        columnspacing=1.5,      
+                        handletextpad=0.5,      
+                        borderpad=0.4,          
                         frameon=True)
 
     legend.get_frame().set_edgecolor('black')
+    legend.get_frame().set_facecolor('white') # Thêm màu nền trắng cho legend để không bị lẫn với mây
+    legend.get_frame().set_alpha(0.9)         # Độ đục của legend
 
-    # Layout fix (legend sát hơn)
+    ax1.set_box_aspect(0.9) 
+
     plt.tight_layout()
-    fig.subplots_adjust(top=0.88)
-
     plt.show()
-
 
 if __name__ == "__main__":
     main()
